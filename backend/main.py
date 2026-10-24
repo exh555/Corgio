@@ -855,20 +855,65 @@ def check_for_updates():
 
 @app.post("/api/update")
 async def update_components(background_tasks: BackgroundTasks):
-    """Runs updater in background and logs completion to activity logs"""
-    def run_update():
-        yt_res = updater.update_yt_dlp()
-        ff_res = updater.update_ffmpeg()
-        database.add_activity_log(
-            "SYSTEM",
-            f"Component update completed. yt-dlp ({yt_res['new_version']}): {'Success' if yt_res['success'] else 'Failed'} | ffmpeg ({ff_res['version']}): {'Success' if ff_res['success'] else 'Failed'}",
-        )
+    """Runs full engine updater in background and records live logs to stream & audit table"""
+    if updater.is_update_in_progress():
+        return {
+            "status": "already_running",
+            "message": "Engine update is already in progress.",
+        }
 
-    background_tasks.add_task(run_update)
+    background_tasks.add_task(updater.run_full_engine_update)
     return {
         "status": "update_started",
-        "message": "Update process started in background. Refresh status in a few moments.",
+        "message": "Engine update started in background.",
     }
+
+
+@app.get("/api/update/status")
+def get_engine_update_status():
+    """Returns the current state and progress step of the component updater"""
+    return updater.get_update_status()
+
+
+@app.get("/api/update/logs")
+def get_engine_update_logs():
+    """Returns the full history of the latest component update logs"""
+    return {
+        "logs": updater.get_update_logs(),
+        "status": updater.get_update_status(),
+    }
+
+
+@app.get("/api/update/stream")
+def stream_engine_update_logs():
+    """Server-Sent Events endpoint to stream engine update console logs in real time"""
+    global _active_sse_streams
+    if _active_sse_streams >= MAX_SSE_STREAMS:
+        raise HTTPException(status_code=429, detail="Too many active log streams")
+
+    async def log_generator():
+        global _active_sse_streams
+        _active_sse_streams += 1
+        sent_index = 0
+        try:
+            while True:
+                active = updater.is_update_in_progress()
+                logs = updater.get_update_logs()
+
+                if sent_index < len(logs):
+                    for i in range(sent_index, len(logs)):
+                        yield f"data: {logs[i]}\n\n"
+                    sent_index = len(logs)
+
+                if not active and sent_index >= len(logs):
+                    yield "data: [system] Update log stream ended.\n\n"
+                    break
+
+                await asyncio.sleep(0.3)
+        finally:
+            _active_sse_streams = max(0, _active_sse_streams - 1)
+
+    return StreamingResponse(log_generator(), media_type="text/event-stream")
 
 
 @app.get("/api/thumbnail/{download_id}.jpg")

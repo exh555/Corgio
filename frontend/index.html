@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Corgio</title>
     <link rel="icon" type="image/svg+xml" href="/static/logo.svg">
-    <link rel="stylesheet" href="/static/style.css?v=4.4">
-    <script src="/static/theme-init.js?v=4.4"></script>
+    <link rel="stylesheet" href="/static/style.css?v=4.5">
+    <script src="/static/theme-init.js?v=4.5"></script>
 </head>
 <body>
     <div class="app-shell">
@@ -206,6 +206,7 @@
                     <div class="sys-actions">
                         <button type="button" class="btn btn-xs" id="check-updates-btn">Check Updates</button>
                         <button type="button" class="btn btn-xs btn-primary" id="update-btn">Update Engines</button>
+                        <button type="button" class="btn btn-xs hidden" id="view-update-logs-btn" title="View core extraction engine update logs">View Logs</button>
                         <button type="button" class="btn btn-xs" id="scan-btn" title="Scan downloads directory for added or missing media files">Scan Folder</button>
                     </div>
                 </div>
@@ -385,6 +386,29 @@
             </div>
             <div class="modal-body">
                 <pre id="log-content" class="console-pre">Connecting to log stream...</pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL 2b: ENGINE UPDATE CONSOLE ==================== -->
+    <div id="update-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="update-modal-title">
+        <div class="modal-content modal-lg">
+            <div class="modal-header">
+                <div style="display:flex;align-items:center;gap:10px;">
+                    <h3 id="update-modal-title" class="modal-title">Engine Update Console</h3>
+                    <span id="update-modal-badge" class="status-tag status-neutral">Idle</span>
+                </div>
+                <div class="modal-header-actions">
+                    <button type="button" class="btn btn-xs" id="copy-update-log-btn">Copy Output</button>
+                    <button type="button" class="btn btn-xs" id="close-update-modal">Close ✕</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <pre id="update-log-content" class="console-pre">Waiting for update output...</pre>
+                <div style="margin-top:8px;font-size:11px;color:var(--text-muted);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
+                    <span>You can close this window at any time; updates continue safely in the background.</span>
+                    <span id="update-modal-status-text"></span>
+                </div>
             </div>
         </div>
     </div>
@@ -650,6 +674,6 @@
     <!-- ==================== TOAST NOTIFICATION CONTAINER ==================== -->
     <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
-    <script src="/static/app.js?v=4.4"></script>
+    <script src="/static/app.js?v=4.5"></script>
 </body>
 </html>

@@ -30,6 +30,7 @@ let appState = {
     selectedIds: new Set(),
     pendingPurgeIds: [],
     activeLogStream: null,
+    activeUpdateStream: null,
     hadActiveDownloads: false,
     pollTimer: null,
     auth: {
@@ -541,9 +542,39 @@ async function fetchStatus() {
                 sysDiskDetail.textContent = `${usedStr} / ${totalStr} (${percent_used}%)`;
             }
         }
+
+        await checkAndUpdateEngineStatus();
     } catch (e) {
         console.error('Error fetching status:', e);
     }
+}
+
+async function checkAndUpdateEngineStatus() {
+    try {
+        const res = await apiFetch(`${API_BASE}/update/status`);
+        if (!res.ok) return;
+        const st = await res.json();
+        const updateBtn = document.getElementById('update-btn');
+        const viewLogsBtn = document.getElementById('view-update-logs-btn');
+
+        if (st.in_progress) {
+            if (updateBtn) {
+                updateBtn.disabled = true;
+                updateBtn.textContent = 'Updating...';
+            }
+            if (viewLogsBtn) viewLogsBtn.classList.remove('hidden');
+        } else {
+            if (updateBtn) {
+                updateBtn.disabled = false;
+                updateBtn.textContent = 'Update Engines';
+            }
+            if (viewLogsBtn) {
+                if (st.log_count > 0) {
+                    viewLogsBtn.classList.remove('hidden');
+                }
+            }
+        }
+    } catch (_) {}
 }
 
 async function checkComponentUpdates(showFeedback = false) {
@@ -1681,28 +1712,143 @@ async function runFolderScan() {
     }
 }
 
+function openUpdateModal(autoFollow = false) {
+    const modal = document.getElementById('update-modal');
+    const logPre = document.getElementById('update-log-content');
+    const badge = document.getElementById('update-modal-badge');
+    const statusText = document.getElementById('update-modal-status-text');
+    if (!modal || !logPre) return;
+
+    if (appState.activeUpdateStream) {
+        appState.activeUpdateStream.close();
+        appState.activeUpdateStream = null;
+    }
+
+    modal.classList.remove('hidden');
+    logPre.textContent = 'Connecting to engine update log stream...\n';
+    if (badge) {
+        badge.className = 'status-tag status-neutral';
+        badge.textContent = 'Connecting...';
+    }
+    if (statusText) statusText.textContent = '';
+
+    let receivedLines = false;
+    const evtSource = new EventSource(`${API_BASE}/update/stream`);
+    appState.activeUpdateStream = evtSource;
+
+    evtSource.onmessage = (event) => {
+        if (!receivedLines) {
+            logPre.textContent = '';
+            receivedLines = true;
+        }
+        const line = event.data || '';
+        logPre.textContent += line + '\n';
+        logPre.scrollTop = logPre.scrollHeight;
+
+        if (badge) {
+            if (line.includes('[system] Starting') || line.includes('[yt-dlp]') || line.includes('[ffmpeg]')) {
+                badge.className = 'status-tag status-warn';
+                badge.textContent = 'Updating...';
+            }
+            if (line.includes('Engine update completed successfully')) {
+                badge.className = 'status-tag status-ok';
+                badge.textContent = 'Completed';
+            } else if (line.includes('Fatal error') || line.includes('completed with warnings or errors')) {
+                badge.className = 'status-tag status-danger';
+                badge.textContent = 'Failed';
+            }
+        }
+
+        if (line.includes('[system] Update log stream ended.')) {
+            evtSource.close();
+            appState.activeUpdateStream = null;
+            fetchStatus();
+            fetchActivityLogs();
+            const updateBtn = document.getElementById('update-btn');
+            if (updateBtn) {
+                updateBtn.disabled = false;
+                updateBtn.textContent = 'Update Engines';
+            }
+            const viewLogsBtn = document.getElementById('view-update-logs-btn');
+            if (viewLogsBtn) viewLogsBtn.classList.remove('hidden');
+        }
+    };
+
+    evtSource.onerror = () => {
+        evtSource.close();
+        appState.activeUpdateStream = null;
+        if (!receivedLines) {
+            fetchStaticUpdateLogsFallback(logPre, badge);
+        }
+    };
+}
+
+async function fetchStaticUpdateLogsFallback(logPre, badge) {
+    try {
+        const res = await apiFetch(`${API_BASE}/update/logs`);
+        if (!res.ok) {
+            logPre.textContent = '[system] Could not retrieve update logs.';
+            return;
+        }
+        const data = await res.json();
+        const logs = data.logs || [];
+        logPre.textContent = logs.length > 0
+            ? logs.join('\n')
+            : '[system] No engine update logs recorded yet.';
+        logPre.scrollTop = logPre.scrollHeight;
+
+        if (badge && data.status) {
+            if (data.status.in_progress) {
+                badge.className = 'status-tag status-warn';
+                badge.textContent = 'Updating...';
+            } else if (data.status.success === true) {
+                badge.className = 'status-tag status-ok';
+                badge.textContent = 'Completed';
+            } else if (data.status.success === false) {
+                badge.className = 'status-tag status-danger';
+                badge.textContent = 'Failed';
+            } else {
+                badge.className = 'status-tag status-neutral';
+                badge.textContent = 'Idle';
+            }
+        }
+    } catch (_) {
+        logPre.textContent = '[system] Error retrieving update logs.';
+    }
+}
+
+function closeUpdateModal() {
+    if (appState.activeUpdateStream) {
+        appState.activeUpdateStream.close();
+        appState.activeUpdateStream = null;
+    }
+    document.getElementById('update-modal')?.classList.add('hidden');
+}
+
 async function runEngineUpdate() {
     const btn = document.getElementById('update-btn');
+    const viewLogsBtn = document.getElementById('view-update-logs-btn');
     if (btn) {
         btn.disabled = true;
         btn.textContent = 'Updating...';
     }
-    showToast('Updating yt-dlp and checking FFmpeg in background...', 'info');
+    if (viewLogsBtn) viewLogsBtn.classList.remove('hidden');
+
+    openUpdateModal(true);
+    showToast('Starting engine update. Streaming logs live...', 'info');
+
     try {
         const res = await apiFetch(`${API_BASE}/update`, { method: 'POST' });
         const data = await res.json();
-        if (data.status === 'update_started' || data.status === 'success') {
-            showToast(data.message || 'Engine update started.', 'success');
-            setTimeout(() => {
-                fetchStatus();
-                fetchActivityLogs();
-            }, 4000);
+        if (data.status === 'already_running') {
+            showToast('Engine update is already in progress.', 'info');
+        } else if (data.status === 'update_started') {
+            showToast('Engine update started in background.', 'success');
         } else {
-            showToast('Update finished with warnings.', 'info');
+            showToast(data.message || 'Engine update triggered.', 'info');
         }
     } catch (e) {
-        showToast('Error updating components.', 'error');
-    } finally {
+        showToast('Error starting engine update.', 'error');
         if (btn) {
             btn.disabled = false;
             btn.textContent = 'Update Engines';
@@ -2076,6 +2222,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 8. System Drawer Actions
     document.getElementById('check-updates-btn')?.addEventListener('click', () => checkComponentUpdates(true));
     document.getElementById('update-btn')?.addEventListener('click', runEngineUpdate);
+    document.getElementById('view-update-logs-btn')?.addEventListener('click', () => openUpdateModal(false));
     document.getElementById('scan-btn')?.addEventListener('click', runFolderScan);
     document.getElementById('refresh-logs-btn')?.addEventListener('click', fetchActivityLogs);
     document.getElementById('clear-logs-btn')?.addEventListener('click', clearAllActivityLogs);
@@ -2094,6 +2241,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const text = document.getElementById('log-content')?.textContent || '';
         navigator.clipboard.writeText(text).then(() => {
             showToast('Console output copied to clipboard.', 'info');
+        }).catch(() => {});
+    });
+    document.getElementById('close-update-modal')?.addEventListener('click', closeUpdateModal);
+    document.getElementById('copy-update-log-btn')?.addEventListener('click', () => {
+        const text = document.getElementById('update-log-content')?.textContent || '';
+        navigator.clipboard.writeText(text).then(() => {
+            showToast('Update console output copied to clipboard.', 'info');
         }).catch(() => {});
     });
     document.getElementById('close-metadata')?.addEventListener('click', () => {
@@ -2117,6 +2271,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 if (modalEl.id === 'player-modal') closePlayerModal();
                 else if (modalEl.id === 'log-modal') closeLogModal();
+                else if (modalEl.id === 'update-modal') closeUpdateModal();
                 else if (modalEl.id === 'delete-modal') closePurgeModal();
                 else modalEl.classList.add('hidden');
             }
@@ -2127,6 +2282,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.key === 'Escape') {
             closePlayerModal();
             closeLogModal();
+            closeUpdateModal();
             closePurgeModal();
             closeAccountModal();
             document.getElementById('metadata-modal')?.classList.add('hidden');

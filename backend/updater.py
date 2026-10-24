@@ -11,11 +11,54 @@ import tempfile
 import threading
 import urllib.request
 import json
+import datetime
 from typing import Optional
 
 _cached_yt_dlp_version = None
 _cached_ffmpeg_version = None
 _update_lock = threading.Lock()
+
+_update_logs = []
+_update_logs_lock = threading.Lock()
+_update_status = {
+    "in_progress": False,
+    "success": None,
+    "current_step": "idle",
+    "started_at": None,
+    "finished_at": None,
+}
+
+
+def append_update_log(msg: str):
+    timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%H:%M:%S")
+    formatted = f"[{timestamp}] {msg}"
+    with _update_logs_lock:
+        _update_logs.append(formatted)
+        if len(_update_logs) > 1000:
+            _update_logs.pop(0)
+
+
+def clear_update_logs():
+    with _update_logs_lock:
+        _update_logs.clear()
+
+
+def get_update_logs() -> list:
+    with _update_logs_lock:
+        return list(_update_logs)
+
+
+def is_update_in_progress() -> bool:
+    with _update_logs_lock:
+        return bool(_update_status.get("in_progress", False))
+
+
+def get_update_status() -> dict:
+    with _update_logs_lock:
+        return {
+            **_update_status,
+            "log_count": len(_update_logs),
+        }
 
 SAFE_SUBPROCESS_ENV_KEYS = (
     "PATH",
@@ -186,17 +229,21 @@ def update_yt_dlp():
     log_output = []
     success = False
     if os.environ.get("DISABLE_RUNTIME_UPDATES", "").lower() in ("1", "true", "yes"):
+        msg = "Runtime updates are disabled by administrator configuration."
+        append_update_log(f"[yt-dlp] {msg}")
         return {
             "success": False,
             "new_version": get_yt_dlp_version(),
-            "log": "Runtime updates are disabled by administrator configuration.",
+            "log": msg,
         }
 
     if not _update_lock.acquire(blocking=False):
+        msg = "Another component update is already in progress."
+        append_update_log(f"[yt-dlp] {msg}")
         return {
             "success": False,
             "new_version": get_yt_dlp_version(),
-            "log": "Another component update is already in progress.",
+            "log": msg,
         }
 
     try:
@@ -204,7 +251,9 @@ def update_yt_dlp():
         os.makedirs(pkg_dir, mode=0o700, exist_ok=True)
 
         try:
-            log_output.append("Starting isolated yt-dlp package update...")
+            msg = "Starting isolated yt-dlp package update via pip..."
+            log_output.append(msg)
+            append_update_log(f"[yt-dlp] {msg}")
             process = subprocess.Popen(
                 [
                     sys.executable,
@@ -227,17 +276,26 @@ def update_yt_dlp():
             )
 
             for line in process.stdout:
-                log_output.append(line.strip())
+                line_str = line.strip()
+                if line_str:
+                    log_output.append(line_str)
+                    append_update_log(f"[yt-dlp] {line_str}")
 
             process.wait(timeout=60)
             if process.returncode == 0:
                 new_version = get_yt_dlp_version(refresh=True)
-                log_output.append(f"yt-dlp updated successfully! Current version: {new_version}")
+                msg = f"yt-dlp updated successfully! Current version: {new_version}"
+                log_output.append(msg)
+                append_update_log(f"[yt-dlp] {msg}")
                 success = True
             else:
-                log_output.append(f"pip install exited with code {process.returncode}")
+                msg = f"pip install exited with code {process.returncode}"
+                log_output.append(msg)
+                append_update_log(f"[yt-dlp] {msg}")
         except Exception as e:
-            log_output.append(f"Error during update process: {str(e)}")
+            msg = f"Error during update process: {str(e)}"
+            log_output.append(msg)
+            append_update_log(f"[yt-dlp] {msg}")
 
         return {
             "success": success,
@@ -277,17 +335,21 @@ def update_ffmpeg():
     success = False
 
     if os.environ.get("DISABLE_RUNTIME_UPDATES", "").lower() in ("1", "true", "yes"):
+        msg = "Runtime updates are disabled by administrator configuration."
+        append_update_log(f"[ffmpeg] {msg}")
         return {
             "success": False,
             "version": get_ffmpeg_version(),
-            "log": "Runtime updates are disabled by administrator configuration.",
+            "log": msg,
         }
 
     if not _update_lock.acquire(blocking=False):
+        msg = "Another component update is already in progress."
+        append_update_log(f"[ffmpeg] {msg}")
         return {
             "success": False,
             "version": get_ffmpeg_version(),
-            "log": "Another component update is already in progress.",
+            "log": msg,
         }
 
     try:
@@ -310,10 +372,14 @@ def update_ffmpeg():
                     pass
 
             try:
-                log_output.append(f"Checking official yt-dlp/FFmpeg-Builds checksum for {asset_name}...")
+                msg = f"Checking official yt-dlp/FFmpeg-Builds checksum for {asset_name}..."
+                log_output.append(msg)
+                append_update_log(f"[ffmpeg] {msg}")
                 expected_sha = _fetch_remote_ffmpeg_sha256(asset_name)
                 if not expected_sha:
                     raise RuntimeError("Could not retrieve official SHA-256 checksum for FFmpeg build")
+
+                append_update_log(f"[ffmpeg] Target release checksum: {expected_sha[:16]}...")
 
                 if (
                     installed_sha
@@ -321,16 +387,22 @@ def update_ffmpeg():
                     and os.path.isfile(os.path.join(bin_dir, "ffmpeg"))
                     and os.path.isfile(os.path.join(bin_dir, "ffprobe"))
                 ):
-                    ver = get_ffmpeg_version(refresh=True)
-                    log_output.append(f"FFmpeg is already at the latest verified build ({ver}).")
+                    ver = get_ffmpeg_friendly_version(refresh=True)
+                    raw_ver = get_ffmpeg_version()
+                    msg = f"FFmpeg is already at the latest verified build ({ver})."
+                    log_output.append(msg)
+                    append_update_log(f"[ffmpeg] {msg}")
                     return {
                         "success": True,
                         "version": ver,
+                        "raw_version": raw_ver,
                         "log": "\n".join(log_output),
                     }
 
                 archive_url = f"{YTDLP_FFMPEG_BASE_URL}/{asset_name}"
-                log_output.append(f"Downloading {archive_url}...")
+                msg = f"Downloading official build from {archive_url}..."
+                log_output.append(msg)
+                append_update_log(f"[ffmpeg] {msg}")
 
                 staging_dir = tempfile.mkdtemp(prefix=".staging_", dir=bin_dir)
                 try:
@@ -342,20 +414,44 @@ def update_ffmpeg():
                         headers={"User-Agent": "Corgio-Updater/1.0"},
                     )
                     with urllib.request.urlopen(req, timeout=120) as resp, open(archive_path, "wb") as out_f:
+                        content_len_header = resp.headers.get("Content-Length")
+                        total_bytes = int(content_len_header) if content_len_header and content_len_header.isdigit() else 0
+                        downloaded_bytes = 0
+                        last_reported_bytes = 0
+
                         while True:
                             chunk = resp.read(65536)
                             if not chunk:
                                 break
                             hasher.update(chunk)
                             out_f.write(chunk)
+                            downloaded_bytes += len(chunk)
+
+                            # Log download progress every ~5 MB
+                            if total_bytes > 0:
+                                if downloaded_bytes - last_reported_bytes >= 5 * 1024 * 1024:
+                                    pct = int((downloaded_bytes / total_bytes) * 100)
+                                    mb_done = downloaded_bytes / (1024 * 1024)
+                                    mb_tot = total_bytes / (1024 * 1024)
+                                    append_update_log(f"[ffmpeg] Downloading: {mb_done:.1f} MB / {mb_tot:.1f} MB ({pct}%)")
+                                    last_reported_bytes = downloaded_bytes
+                            else:
+                                if downloaded_bytes - last_reported_bytes >= 10 * 1024 * 1024:
+                                    mb_done = downloaded_bytes / (1024 * 1024)
+                                    append_update_log(f"[ffmpeg] Downloaded {mb_done:.1f} MB...")
+                                    last_reported_bytes = downloaded_bytes
 
                     computed_sha = hasher.hexdigest().lower()
+                    append_update_log(f"[ffmpeg] Download complete ({downloaded_bytes / (1024 * 1024):.1f} MB). Verifying SHA-256...")
+
                     if not hmac.compare_digest(computed_sha, expected_sha):
                         raise RuntimeError(
                             f"SHA-256 checksum mismatch! Expected {expected_sha}, got {computed_sha}"
                         )
 
-                    log_output.append("SHA-256 checksum verified. Extracting ffmpeg and ffprobe binaries...")
+                    msg = "SHA-256 checksum verified. Extracting ffmpeg and ffprobe binaries..."
+                    log_output.append(msg)
+                    append_update_log(f"[ffmpeg] {msg}")
 
                     extracted_bins = {}
                     with tarfile.open(archive_path, mode="r:xz") as tf:
@@ -378,6 +474,7 @@ def update_ffmpeg():
                         raise RuntimeError("Archive did not contain expected bin/ffmpeg and bin/ffprobe binaries")
 
                     # Smoke-check extracted binaries before replacing working binaries (F4)
+                    append_update_log("[ffmpeg] Running pre-flight smoke tests on extracted binaries...")
                     for target_bin, stage_bin_path in extracted_bins.items():
                         smoke = subprocess.run(
                             [stage_bin_path, "-version"],
@@ -400,12 +497,16 @@ def update_ffmpeg():
 
                     new_ver = get_ffmpeg_friendly_version(refresh=True)
                     raw_ver = get_ffmpeg_version()
-                    log_output.append(f"FFmpeg updated successfully to {new_ver} ({raw_ver})")
+                    msg = f"FFmpeg updated successfully to {new_ver} ({raw_ver})"
+                    log_output.append(msg)
+                    append_update_log(f"[ffmpeg] {msg}")
                     success = True
                 finally:
                     shutil.rmtree(staging_dir, ignore_errors=True)
             except Exception as e:
-                log_output.append(f"FFmpeg static overlay update failed: {str(e)}")
+                msg = f"FFmpeg static overlay update failed: {str(e)}"
+                log_output.append(msg)
+                append_update_log(f"[ffmpeg] {msg}")
                 success = False
 
             return {
@@ -417,9 +518,9 @@ def update_ffmpeg():
 
         # Non-Linux or unsupported arch fallback
         if hasattr(os, "geteuid") and os.geteuid() != 0:
-            log_output.append(
-                "FFmpeg static overlay builds target Linux (x86_64 / arm64). Using host FFmpeg installation."
-            )
+            msg = "FFmpeg static overlay builds target Linux (x86_64 / arm64). Using host FFmpeg installation."
+            log_output.append(msg)
+            append_update_log(f"[ffmpeg] {msg}")
             return {
                 "success": True,
                 "version": get_ffmpeg_friendly_version(refresh=True),
@@ -431,7 +532,9 @@ def update_ffmpeg():
         apk_path = shutil.which("apk")
 
         try:
-            log_output.append("Checking for ffmpeg updates via system package manager...")
+            msg = "Checking for ffmpeg updates via system package manager..."
+            log_output.append(msg)
+            append_update_log(f"[ffmpeg] {msg}")
             if apt_path:
                 subprocess.run(["apt-get", "update"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
                 process = subprocess.Popen(
@@ -441,7 +544,10 @@ def update_ffmpeg():
                     text=True,
                 )
                 for line in process.stdout:
-                    log_output.append(line.strip())
+                    l = line.strip()
+                    if l:
+                        log_output.append(l)
+                        append_update_log(f"[ffmpeg] {l}")
                 process.wait(timeout=120)
                 success = process.returncode == 0
                 subprocess.run(["apt-get", "clean"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -454,14 +560,21 @@ def update_ffmpeg():
                     text=True,
                 )
                 for line in process.stdout:
-                    log_output.append(line.strip())
+                    l = line.strip()
+                    if l:
+                        log_output.append(l)
+                        append_update_log(f"[ffmpeg] {l}")
                 process.wait(timeout=120)
                 success = process.returncode == 0
             else:
-                log_output.append("Using host FFmpeg installation.")
+                msg = "Using host FFmpeg installation."
+                log_output.append(msg)
+                append_update_log(f"[ffmpeg] {msg}")
                 success = True
         except Exception:
-            log_output.append("Error during ffmpeg update.")
+            msg = "Error during ffmpeg update."
+            log_output.append(msg)
+            append_update_log(f"[ffmpeg] {msg}")
             success = False
 
         return {
@@ -472,6 +585,70 @@ def update_ffmpeg():
         }
     finally:
         _update_lock.release()
+
+
+def run_full_engine_update() -> dict:
+    """Coordinates updating yt-dlp and FFmpeg sequentially with unified live logging and state."""
+    global _update_status
+    with _update_logs_lock:
+        _update_status["in_progress"] = True
+        _update_status["success"] = None
+        _update_status["current_step"] = "yt-dlp"
+        _update_status["started_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        _update_status["finished_at"] = None
+    clear_update_logs()
+
+    append_update_log("[system] Starting core engine update process (yt-dlp & FFmpeg)...")
+
+    yt_res = {"success": False, "new_version": "unknown", "log": ""}
+    ff_res = {"success": False, "version": "unknown", "log": ""}
+    try:
+        append_update_log("[yt-dlp] Checking and updating yt-dlp...")
+        yt_res = update_yt_dlp()
+
+        with _update_logs_lock:
+            _update_status["current_step"] = "ffmpeg"
+
+        append_update_log("[ffmpeg] Checking and updating FFmpeg...")
+        ff_res = update_ffmpeg()
+
+        overall_success = bool(yt_res.get("success", False) and ff_res.get("success", False))
+        status_text = "successfully" if overall_success else "with warnings or errors"
+        append_update_log(f"[system] Engine update completed {status_text}.")
+        append_update_log(f"[system] yt-dlp: {yt_res.get('new_version', 'unknown')} | FFmpeg: {ff_res.get('version', 'unknown')}")
+
+        with _update_logs_lock:
+            _update_status["in_progress"] = False
+            _update_status["success"] = overall_success
+            _update_status["current_step"] = "completed"
+            _update_status["finished_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+        try:
+            from . import database
+            database.add_activity_log(
+                "SYSTEM",
+                f"Engine update {status_text}. yt-dlp ({yt_res.get('new_version')}): {'Success' if yt_res.get('success') else 'Failed'} | FFmpeg ({ff_res.get('version')}): {'Success' if ff_res.get('success') else 'Failed'}",
+            )
+        except Exception:
+            pass
+
+        return {
+            "success": overall_success,
+            "yt_dlp": yt_res,
+            "ffmpeg": ff_res,
+        }
+    except Exception as e:
+        err_msg = f"Fatal error during engine update: {str(e)}"
+        append_update_log(f"[system] {err_msg}")
+        with _update_logs_lock:
+            _update_status["in_progress"] = False
+            _update_status["success"] = False
+            _update_status["current_step"] = "failed"
+            _update_status["finished_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        return {
+            "success": False,
+            "error": err_msg,
+        }
 
 
 def parse_version(ver_str):
