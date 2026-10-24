@@ -447,6 +447,41 @@ function populateOptionsDrawerFromSettings() {
     if (themeSelect) themeSelect.value = s.theme || 'dark';
 }
 
+function formatFfmpegVersion(raw) {
+    if (!raw || raw === 'unknown') return 'Unknown';
+    let str = raw
+        .replace(/^ffmpeg\s+version\s+/i, '')
+        .split(/\s+Copyright/i)[0]
+        .trim();
+    if (!str) return raw;
+
+    // Git snapshot builds, e.g. N-127989-gc6f044e604-20261023 or N-127989-20261023
+    const masterMatch = str.match(/^N-\d+(?:-g([0-9a-f]+))?-(\d{4})(\d{2})(\d{2})$/i);
+    if (masterMatch) {
+        const hash = masterMatch[1] ? masterMatch[1].slice(0, 7) : '';
+        const dateStr = `${masterMatch[2]}-${masterMatch[3]}-${masterMatch[4]}`;
+        return hash ? `Master · ${dateStr} (${hash})` : `Master · ${dateStr}`;
+    }
+
+    // Autobuild or git date patterns, e.g. autobuild-2026-10-23
+    const autoMatch = str.match(/^(?:autobuild|git)-(\d{4})-(\d{2})-(\d{2})(?:-([0-9a-f]+))?/i);
+    if (autoMatch) {
+        const dateStr = `${autoMatch[1]}-${autoMatch[2]}-${autoMatch[3]}`;
+        const hash = autoMatch[4] ? autoMatch[4].slice(0, 7) : '';
+        return hash ? `Master · ${dateStr} (${hash})` : `Master · ${dateStr}`;
+    }
+
+    // Standard / distro release versions, e.g. 7.1, 7.1-ytdlp, n7.1
+    if (/^\d+\.\d+/.test(str)) {
+        return `v${str}`;
+    }
+    if (/^n\d+\.\d+/i.test(str)) {
+        return `v${str.replace(/^n/i, '')}`;
+    }
+
+    return str;
+}
+
 async function fetchStatus() {
     try {
         const res = await apiFetch(`${API_BASE}/status`);
@@ -459,17 +494,14 @@ async function fetchStatus() {
 
         const ytVer = data.yt_dlp_version || 'unknown';
         const ffRaw = data.ffmpeg_version || 'unknown';
-        const ffShort = ffRaw
-            .replace(/^ffmpeg\s+version\s+/i, '')
-            .split(/\s+Copyright/i)[0]
-            .trim() || ffRaw;
+        const ffDisplay = data.ffmpeg_friendly_version || formatFfmpegVersion(ffRaw);
 
         const sysYt = document.getElementById('sys-ytdlp-version');
         if (sysYt) sysYt.textContent = ytVer;
 
         const sysFf = document.getElementById('sys-ffmpeg-version');
         if (sysFf) {
-            sysFf.textContent = ffShort;
+            sysFf.textContent = ffDisplay;
             sysFf.title = ffRaw;
         }
 
@@ -546,7 +578,7 @@ async function checkComponentUpdates(showFeedback = false) {
             if (showFeedback) {
                 const updatesList = [];
                 if (ytAvail) updatesList.push(`yt-dlp (${data.yt_dlp.latest})`);
-                if (ffAvail) updatesList.push(`FFmpeg (${data.ffmpeg.latest})`);
+                if (ffAvail) updatesList.push(`FFmpeg (${formatFfmpegVersion(data.ffmpeg.latest)})`);
                 showToast(`Update available: ${updatesList.join(' & ')}.`, 'info');
             }
         } else {

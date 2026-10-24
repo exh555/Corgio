@@ -600,6 +600,7 @@ def get_status():
         "app_version": APP_VERSION,
         "yt_dlp_version": updater.get_yt_dlp_version(),
         "ffmpeg_version": updater.get_ffmpeg_version(),
+        "ffmpeg_friendly_version": updater.get_ffmpeg_friendly_version(),
         "downloads_dir": display_dir,
         "disk_space": {
             "total": total,

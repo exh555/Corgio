@@ -1,4 +1,5 @@
 import os
+import re
 import hmac
 import hashlib
 import platform
@@ -142,6 +143,43 @@ def get_ffmpeg_version(refresh: bool = False) -> str:
         return _cached_ffmpeg_version
     except Exception:
         return "unknown"
+
+
+def format_ffmpeg_version(raw: str) -> str:
+    """Format technical FFmpeg version strings into a friendly human-readable format."""
+    if not raw or raw == "unknown":
+        return "Unknown"
+    s = re.sub(r"^ffmpeg\s+version\s+", "", raw, flags=re.IGNORECASE)
+    s = re.split(r"\s+Copyright", s, flags=re.IGNORECASE)[0].strip()
+    if not s:
+        return raw
+
+    # Git snapshot builds, e.g. N-127989-gc6f044e604-20261023 or N-127989-20261023
+    m = re.match(r"^N-\d+(?:-g([0-9a-f]+))?-(\d{4})(\d{2})(\d{2})$", s, re.IGNORECASE)
+    if m:
+        h = m.group(1)[:7] if m.group(1) else ""
+        d = f"{m.group(2)}-{m.group(3)}-{m.group(4)}"
+        return f"Master · {d} ({h})" if h else f"Master · {d}"
+
+    # Autobuild or git date patterns, e.g. autobuild-2026-10-23
+    m2 = re.match(r"^(?:autobuild|git)-(\d{4})-(\d{2})-(\d{2})(?:-([0-9a-f]+))?", s, re.IGNORECASE)
+    if m2:
+        d = f"{m2.group(1)}-{m2.group(2)}-{m2.group(3)}"
+        h = m2.group(4)[:7] if m2.group(4) else ""
+        return f"Master · {d} ({h})" if h else f"Master · {d}"
+
+    # Standard / distro release versions, e.g. 7.1, 7.1-ytdlp, n7.1
+    if re.match(r"^\d+\.\d+", s):
+        return f"v{s}"
+    if re.match(r"^n\d+\.\d+", s, re.IGNORECASE):
+        return f"v{s[1:]}"
+
+    return s
+
+
+def get_ffmpeg_friendly_version(refresh: bool = False) -> str:
+    raw = get_ffmpeg_version(refresh=refresh)
+    return format_ffmpeg_version(raw)
 
 
 def update_yt_dlp():
@@ -360,8 +398,9 @@ def update_ffmpeg():
                         sf.write(expected_sha)
                     os.chmod(stamp_file, 0o600)
 
-                    new_ver = get_ffmpeg_version(refresh=True)
-                    log_output.append(f"FFmpeg updated successfully to {new_ver}")
+                    new_ver = get_ffmpeg_friendly_version(refresh=True)
+                    raw_ver = get_ffmpeg_version()
+                    log_output.append(f"FFmpeg updated successfully to {new_ver} ({raw_ver})")
                     success = True
                 finally:
                     shutil.rmtree(staging_dir, ignore_errors=True)
@@ -371,7 +410,8 @@ def update_ffmpeg():
 
             return {
                 "success": success,
-                "version": get_ffmpeg_version(refresh=True),
+                "version": get_ffmpeg_friendly_version(refresh=True),
+                "raw_version": get_ffmpeg_version(),
                 "log": "\n".join(log_output),
             }
 
@@ -382,7 +422,8 @@ def update_ffmpeg():
             )
             return {
                 "success": True,
-                "version": get_ffmpeg_version(refresh=True),
+                "version": get_ffmpeg_friendly_version(refresh=True),
+                "raw_version": get_ffmpeg_version(),
                 "log": "\n".join(log_output),
             }
 
@@ -425,7 +466,8 @@ def update_ffmpeg():
 
         return {
             "success": success,
-            "version": get_ffmpeg_version(refresh=True),
+            "version": get_ffmpeg_friendly_version(refresh=True),
+            "raw_version": get_ffmpeg_version(),
             "log": "\n".join(log_output),
         }
     finally:
@@ -469,7 +511,8 @@ def check_yt_dlp_update():
 
 def check_ffmpeg_update():
     current_version = get_ffmpeg_version()
-    latest_version = current_version
+    friendly_current = get_ffmpeg_friendly_version()
+    latest_version = friendly_current
     update_available = False
 
     asset_name = _get_ytdlp_ffmpeg_asset_name()
@@ -498,13 +541,15 @@ def check_ffmpeg_update():
             pass
 
         return {
-            "current": current_version,
+            "current": friendly_current,
+            "raw_current": current_version,
             "latest": latest_version,
             "update_available": update_available,
         }
 
     return {
-        "current": current_version,
+        "current": friendly_current,
+        "raw_current": current_version,
         "latest": latest_version,
         "update_available": False,
     }
