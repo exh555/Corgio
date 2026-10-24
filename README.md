@@ -1,5 +1,13 @@
 # Corgio
 
+> **A self-hosted, privacy-first media command deck built on `yt-dlp` and `ffmpeg` with a hardened zero-trace security architecture.**
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Privacy: Zero-Trace](https://img.shields.io/badge/Privacy-Zero--Trace%20by%20Design-success.svg)](#privacy-thoughtfulness-zero-trace-by-design)
+[![Security: Hardened](https://img.shields.io/badge/Security-SSRF%20%2B%20Flag%20Allowlist-blueviolet.svg)](#security-hardening)
+[![External CDNs: None](https://img.shields.io/badge/Third--Party%20CDNs-0%20(100%25%20Local)-orange.svg)](#2-self-contained-zero-cdn-frontend)
+[![Unraid: Ready](https://img.shields.io/badge/Unraid-Community%20Apps%20Ready-critical.svg)](#deployment-on-unraid)
+
 A self-hosted, privacy-first web application for downloading and managing video and audio media using `yt-dlp` and `ffmpeg`. Designed with a **Traditional Flat "Command Deck" UI**, hardened security boundaries, and a **zero-trace privacy architecture** tailored for Unraid, Docker, and home lab environments.
 
 ---
@@ -11,6 +19,15 @@ Most self-hosted `yt-dlp` web interfaces force an uncomfortable compromise:
 * **Heavyweight suites** (*TubeArchivist*, *Pinchflat*, etc.) require multi-container stacks (Redis, Elasticsearch, background schedulers) and complex channel-subscription workflows when all you want is a fast, private, rock-solid media downloader and library.
 
 **Corgio** hits the sweet spot: **single-container simplicity** paired with **pro-tool density, live self-updating engines, built-in authentication, and zero-trace privacy**.
+
+> [!IMPORTANT]
+> ### The Privacy Gap in Typical Media Downloaders
+> Most users assume a self-hosted downloader is private simply because it runs on their home server. In reality, typical web UIs leak your activity through three critical vectors:
+> 1. **Third-Party CDN Beaconing**: When you open your media library in standard tools, your browser fires background requests directly to Google/YouTube (`i.ytimg.com`) or Vimeo (`vimeocdn.com`) to load thumbnails—broadcasting your home IP and your entire private viewing collection to external ad and tracking networks.
+> 2. **Embedded Container Fingerprints**: By default, extractors write the exact source URL, user commentary, and session tokens directly into the output MP4/MKV container metadata—permanently stamping your origin URL into files you share or archive.
+> 3. **Forensic Disk Residue**: Standard database `DELETE` statements leave SQLite pages intact, allowing deleted URLs, video titles, and watch history to be recovered from the database file using basic forensic tools or `strings`.
+>
+> **Corgio was engineered to eliminate these leaks entirely.** Every thumbnail is extracted locally on your hardware via `ffmpeg`, media container metadata is scrubbed by default (`-map_metadata -1`), transient URL tokens are redacted before touching storage, and deleted records are forensically zeroed out with `PRAGMA secure_delete = ON`.
 
 | Capability | Typical Lightweight Wrappers | Heavy Archival Suites | **Corgio** |
 | :--- | :--- | :--- | :--- |
@@ -28,8 +45,14 @@ Most self-hosted `yt-dlp` web interfaces force an uncomfortable compromise:
 ### What Sets Corgio Apart
 
 1. **Never Wait on a Docker Image Rebuild When a Site Breaks**: Video sites change their player signatures constantly. Instead of waiting days for a container maintainer's CI pipeline to publish a new image, Corgio lets you click **Update Engines** right inside the UI. It installs the latest `yt-dlp` release into `/config/.yt-dlp-pkg` and the official SHA-256 verified `yt-dlp/FFmpeg-Builds` static binaries into `/config/.ffmpeg-bin` on your persistent volume—activating immediately without restarting the server, surviving container restarts, and running safely without `root` privileges.
-2. **True "Zero-Trace" Privacy Architecture**: Opening most downloader UIs triggers dozens of browser requests to third-party thumbnail servers (`ytimg.com`, `vimeocdn.com`, etc.), exposing your IP address and entire library to external trackers. Corgio generates every thumbnail locally from the downloaded media via `ffmpeg`, strips embedded source URLs from output files, redacts tokens from logs, and overwrites deleted database pages with zeroes (`secure_delete = ON`).
-3. **Production-Grade Security in a Home-Lab Package**: Built-in forms authentication (`admin` / `corgio` on first launch with mandatory password setup, 600,000-iteration PBKDF2 hashing, automatic session rotation on password change, and `RESET_PASSWORD=true` Docker recovery), strict SSRF/DNS-rebinding defenses, and a canonical `yt-dlp` flag validator that prevents `--exec` command injection.
+2. **True "Zero-Trace" Privacy Architecture (Zero External CDNs, Zero Forensic Trails)**:
+   * **Zero Third-Party Beacons**: Opening most downloader UIs triggers dozens of browser requests to third-party thumbnail servers (`ytimg.com`, `vimeocdn.com`, etc.), exposing your client IP, browser headers, and entire private library to external ad/tracking platforms. Corgio generates 100% of thumbnails locally on your hardware via `ffmpeg`.
+   * **Container Metadata Scrubbing**: `yt-dlp` often burns the origin webpage URL, uploader username, and extractor tokens directly into output MP4/MKV container metadata. Corgio strips container metadata (`-map_metadata -1`) by default so files you share or archive don't leak where you got them.
+   * **Forensic Disk Erasure**: Standard SQLite `DELETE` operations only flag disk pages as free—leaving deleted URLs, titles, and paths readable via hex editor or `strings`. Corgio enforces `PRAGMA secure_delete = ON` (overwriting deleted pages with zeroes) and executes WAL checkpoints with truncation.
+3. **Defense-in-Depth Security (Home-Lab Hardened)**:
+   * **Real Authentication Gate**: Protects your instance with 600,000-iteration PBKDF2 hashing, `HttpOnly; SameSite=Strict` cookies, brute-force rate limiting (5 failed attempts → 60s lockout), and an enforceable first-launch password change gate.
+   * **Exploit-Proof CLI Flag Validator**: Unlike frontends that pass raw user input or naïve blacklists to `yt-dlp` (vulnerable to `--exec` arbitrary command execution, `--alias`, or shorthand abbreviations), Corgio validates custom arguments against a strict canonical allowlist and regex parser.
+   * **SSRF & DNS-Rebinding Shields**: Resolves target hostnames against `socket.getaddrinfo()` and rejects loopback (`127.0.0.0/8`, `::1`), RFC1918 private LAN ranges, and link-local cloud metadata endpoints (`169.254.169.254`).
 4. **Built for Speed ("Command Deck" Workflow)**: Drag and drop a link anywhere on the window (or press `Cmd+V` / `Ctrl+V`) to start downloading immediately, or drop onto the top URL bar to customize format, speed limits, and subtitles first. Watch every job progress through a 4-stage pipeline (`1.Meta → 2.Stream → 3.FFmpeg → 4.Clean`) with live SSE console streaming, then play or manage files in a responsive Table or Card Grid library.
 
 ---
@@ -128,12 +151,26 @@ Corgio solves this with a **privilege-separated, persistent overlay updater** ([
 
 Media downloaders routinely handle sensitive URLs, private tokens, and personal viewing habits. Corgio is engineered so neither third-party networks nor forensic leftovers on disk expose your activity:
 
+```
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│                               ZERO-TRACE DATA LIFECYCLE                                │
+│                                                                                        │
+│  Inbound URL ──► Token Redaction ──► Isolated Staging ──► Container Metadata Strip     │
+│  (Sanitized)     (Query & Auth)      (.work/<job_id>)     (-map_metadata -1)           │
+│                                                                   │                    │
+│                                                                   ▼                    │
+│  Secure Zero-Out ◄── Transient Log Wipe ◄── Atomic Promotion ◄── Local FFmpeg Thumb    │
+│  (PRAGMA secure_del) (Zero RAM buffers)    (To /downloads)       (Zero External CDNs)  │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
 | Privacy Layer | Implementation Details |
 | :--- | :--- |
 | **Zero Third-Party Thumbnail Leaks** | Most web interfaces embed upstream thumbnail URLs (e.g., `i.ytimg.com`) directly in `<img>` tags, leaking your client IP, `Referer`, and viewing library to third-party CDNs every time you open the page. Corgio never fetches or embeds remote thumbnail URLs in the browser; instead, [`generate_video_thumbnail()`](backend/downloader.py) extracts a local frame directly from the downloaded media file into `/downloads/.thumbnails/<job_id>.jpg` via `ffmpeg -protocol_whitelist file,pipe -map_metadata -1` (stripping EXIF/container metadata). |
 | **Container Metadata Stripping** | By default, downloaders often write the source webpage URL, uploader commentary, and extractor tags into the output file's MP4/MKV container metadata. Corgio passes `--no-embed-metadata` and `--postprocessor-args "ffmpeg:-map_metadata -1"` by default (unless `--embed-metadata` or `--add-metadata` is explicitly requested) so files saved in `/downloads` do not carry hidden origin URLs when shared or archived. |
 | **URL Secret & Token Redaction** | Before any URL is persisted to SQLite, written to activity logs, or emitted to the SSE console stream, [`sanitize_url_for_storage()`](backend/privacy.py) and [`redact_urls_in_text()`](backend/privacy.py) strip HTTP userinfo credentials (`user:pass@host`) and redact sensitive query parameters (`token`, `sig`, `signature`, `key`, `auth`, `hdnea`, `session`, `X-Amz-Signature`, etc.), keeping the raw signed URL strictly in transient memory for the active `yt-dlp` subprocess. |
 | **Forensic SQLite Erasure (`secure_delete`)** | Standard SQLite `DELETE` statements only mark database pages as free, leaving deleted URLs and titles recoverable in the `.db` file via `strings` or hex inspection. [`database.py`](backend/database.py) enables `PRAGMA secure_delete = ON` on every connection (overwriting deleted records with zeroes) and runs `VACUUM` + `PRAGMA wal_checkpoint(TRUNCATE)` when purging records or clearing logs. |
+| **Carousel & Recommendation Isolation** | Many news sites (CNN, BBC, Fox News) embed auto-advancing "up next" carousels that extractors treat as full playlists. Corgio's metadata engine automatically identifies embedded recommendation carousels on single-video pages, restricting downloads to the intended primary video (`--playlist-items 1`) so unrelated clips are never queued or downloaded. |
 | **Log Sanitization & No Access Logs** | Uvicorn HTTP access logs (`uvicorn.access`) are disabled by default so request paths are not written to container stdout. Additionally, `yt-dlp` console output is scrubbed for sensitive URL parameters before entering the in-memory log buffer or database error column, and wiped from RAM upon completion. |
 | **Isolated Runtime Environment** | `yt-dlp` is invoked with `--ignore-config`, `--no-plugin-dirs`, `--no-cookies`, `--no-cache-dir`, `PYTHONNOUSERSITE=1`, and an explicit environment variable allowlist (`SAFE_SUBPROCESS_ENV_KEYS` in [`backend/updater.py`](backend/updater.py)), ensuring application secrets (`CORGIO_AUTH_TOKEN`, `INITIAL_PASSWORD`), host credentials, and browser cookies never leak into child processes. |
 | **Hardened Browser Headers** | Every HTTP response includes `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Cross-Origin-Resource-Policy: same-origin`, and a locked-down `Content-Security-Policy`. |

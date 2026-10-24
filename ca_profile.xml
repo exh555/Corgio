@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<CommunityApplications>
+  <Profile>Official repository for Corgio — a self-hosted, privacy-first web application for downloading and managing video and audio media using yt-dlp and ffmpeg. Features a Traditional Flat Command Deck UI, live self-updating engines without container rebuilds, built-in forms authentication, and zero-trace privacy architecture. Maintained by exh555.</Profile>
+  <Icon>https://raw.githubusercontent.com/exh555/Corgio/main/icon.svg</Icon>
+  <WebPage>https://github.com/exh555/Corgio</WebPage>
+  <!-- Uncomment and update with your Unraid Forum thread once posted: -->
+  <!-- <Forum>https://forums.unraid.net/topic/XXXXXX-support-corgio/</Forum> -->
+  <!-- Optional Community / Donation Links: -->
+  <!-- <Discord>https://discord.gg/your-code</Discord> -->
+  <!-- <DonateLink>https://github.com/sponsors/exh555</DonateLink> -->
+  <!-- <DonateText>Support Corgio Development</DonateText> -->
+</CommunityApplications>

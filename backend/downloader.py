@@ -203,6 +203,37 @@ def validate_download_url(url: str) -> str:
     return clean
 
 
+def is_explicit_playlist_url(raw_url: str) -> bool:
+    """
+    Detects whether a URL is an intentional, dedicated playlist or album container
+    (e.g., YouTube playlist, SoundCloud set, Bandcamp album) rather than a single
+    video or article page that merely embeds a related/recommendation carousel.
+    """
+    try:
+        parsed = urlparse(raw_url)
+        path = (parsed.path or "").lower()
+        query = (parsed.query or "").lower()
+        netloc = (parsed.netloc or "").lower()
+
+        # YouTube pure playlist: /playlist?list=... (and NOT /watch with ?v=)
+        if any(h in netloc for h in ("youtube.com", "youtu.be")):
+            if "/playlist" in path and "list=" in query:
+                return True
+            return False
+
+        # SoundCloud sets
+        if "soundcloud.com" in netloc and "/sets/" in path:
+            return True
+
+        # Bandcamp album
+        if "/album/" in path:
+            return True
+
+        return False
+    except Exception:
+        return False
+
+
 def parse_and_validate_custom_args(custom_args_str: str) -> list:
     """
     Strictly validates custom CLI options against an exact canonical allowlist of safe flags
@@ -729,6 +760,8 @@ def run_yt_dlp_download(download_id, url, settings):
 
         # 1. Fetch metadata first (fast check, isolated from user config/plugins/cache/cookies)
         _append_log(download_id, "[system] Fetching metadata...")
+        detected_playlist = False
+        is_explicit_playlist = is_explicit_playlist_url(url)
         info_cmd = [
             sys.executable,
             "-m",
@@ -738,11 +771,11 @@ def run_yt_dlp_download(download_id, url, settings):
             "--no-cache-dir",
             "--no-cookies",
             "--dump-json",
-            "--no-playlist",
             "--skip-download",
-            "--",
-            url,
         ]
+        if not is_explicit_playlist:
+            info_cmd.append("--no-playlist")
+        info_cmd.extend(["--", url])
         try:
             info_proc = subprocess.Popen(
                 info_cmd,
@@ -765,8 +798,14 @@ def run_yt_dlp_download(download_id, url, settings):
                 return
 
             if info_proc.returncode == 0 and stdout_data:
-                first_line = stdout_data.strip().splitlines()[0]
-                info_data = json.loads(first_line)
+                lines = [ln.strip() for ln in stdout_data.splitlines() if ln.strip()]
+                if lines:
+                    first_line = lines[0]
+                    info_data = json.loads(first_line)
+                    if len(lines) > 1 or bool(info_data.get("playlist")) or info_data.get("_type") == "playlist":
+                        detected_playlist = True
+                else:
+                    info_data = {}
                 raw_title = info_data.get("title") or safe_url
                 title = privacy.redact_urls_in_text(raw_title)
                 duration = int(info_data.get("duration") or 0)
@@ -831,8 +870,9 @@ def run_yt_dlp_download(download_id, url, settings):
             "--progress",
             "--no-cache-dir",
             "--no-cookies",
-            "--no-playlist",
         ]
+        if not is_explicit_playlist:
+            cmd.append("--no-playlist")
 
         db_settings = database.get_settings()
 
@@ -891,6 +931,7 @@ def run_yt_dlp_download(download_id, url, settings):
             try:
                 validated_args = parse_and_validate_custom_args(custom_args_val)
                 if any(a in ("--yes-playlist", "--playlist-items") for a in validated_args):
+                    is_explicit_playlist = True
                     if "--no-playlist" in cmd:
                         cmd.remove("--no-playlist")
                 cmd.extend(validated_args)
@@ -904,6 +945,14 @@ def run_yt_dlp_download(download_id, url, settings):
             if "--no-embed-metadata" not in validated_args:
                 cmd.append("--no-embed-metadata")
             cmd.extend(["--postprocessor-args", "ffmpeg:-map_metadata -1"])
+
+        # Multi-video page / carousel safeguard:
+        # If yt-dlp detected multiple entries (e.g. CNN/news article pages with embedded carousels)
+        # on a single-video URL, restrict download to primary video (item 1)
+        if not is_explicit_playlist and not any(a in ("--yes-playlist", "--playlist-items", "--playlist-start", "--playlist-end", "--max-downloads") for a in validated_args):
+            if detected_playlist:
+                cmd.extend(["--playlist-items", "1"])
+                _append_log(download_id, "[system] Multi-video page detected: downloading primary video (--playlist-items 1)")
 
         # Append end-of-options delimiter and raw URL
         cmd.extend(["--", url])
@@ -1009,7 +1058,7 @@ def run_yt_dlp_download(download_id, url, settings):
             _append_log(download_id, "[system] Download stopped by user request.")
             return
 
-        if process.returncode == 0:
+        if process.returncode in (0, 101):
             # Verify candidate work_filepath is strictly inside job_work_dir and has a media extension
             if (
                 work_filepath
@@ -1092,6 +1141,55 @@ def run_yt_dlp_download(download_id, url, settings):
                 _append_log(download_id, f"[system] Download completed successfully. Saved to: {filename}")
                 _safe_activity_log(download_id, "DOWNLOAD_COMPLETE", f"Completed download: {filename}")
                 download_succeeded = True
+
+                # If there are additional media files in job_work_dir (e.g. multi-video playlist download),
+                # safely promote each additional file into the media library instead of discarding it
+                if os.path.exists(job_work_dir):
+                    remaining_candidates = [
+                        os.path.realpath(os.path.join(job_work_dir, f))
+                        for f in os.listdir(job_work_dir)
+                        if os.path.isfile(os.path.join(job_work_dir, f))
+                        and is_path_within(os.path.join(job_work_dir, f), job_work_dir)
+                        and os.path.splitext(f)[1].lower() in MEDIA_EXTENSIONS
+                    ]
+                    for extra_path in remaining_candidates:
+                        if not os.path.exists(extra_path):
+                            continue
+                        extra_filename = os.path.basename(extra_path)
+                        extra_final_path = os.path.realpath(os.path.join(target_dir, extra_filename))
+                        if not is_path_within(extra_final_path, DOWNLOAD_DIR):
+                            continue
+                        shutil.move(extra_path, extra_final_path)
+
+                        extra_id = uuid.uuid4().hex[:12]
+                        extra_size = os.path.getsize(extra_final_path)
+                        extra_ext = os.path.splitext(extra_filename)[1].replace(".", "").lower()
+                        extra_duration = get_video_duration(extra_final_path)
+                        extra_thumb_path = os.path.join(THUMBNAIL_DIR, f"{extra_id}.jpg")
+                        extra_thumb_success = False
+                        if extra_ext in ["mp4", "mkv", "webm", "avi", "mov"]:
+                            extra_thumb_success = generate_video_thumbnail(
+                                extra_final_path, extra_thumb_path, duration=extra_duration, download_id=extra_id
+                            )
+                        extra_thumb_url = f"/api/thumbnail/{extra_id}.jpg" if extra_thumb_success else "/static/fallback-icon.svg"
+                        raw_extra_title = os.path.splitext(extra_filename)[0]
+                        extra_title = re.sub(r"\s*\[[a-zA-Z0-9_-]{6,}\]$", "", raw_extra_title)
+
+                        database.add_download(extra_id, safe_url, title=extra_title, status="completed")
+                        database.update_download(
+                            extra_id,
+                            filename=extra_filename,
+                            filepath=extra_final_path,
+                            duration=extra_duration,
+                            file_size=extra_size,
+                            thumbnail_url=extra_thumb_url,
+                            format=extra_ext,
+                            progress=100.0,
+                            speed="0 KB/s",
+                            eta="00:00",
+                        )
+                        _append_log(download_id, f"[system] Playlist item completed: {extra_filename}")
+                        _safe_activity_log(extra_id, "DOWNLOAD_COMPLETE", f"Completed playlist item: {extra_filename}")
             else:
                 _safe_update_db(
                     download_id,
