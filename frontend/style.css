@@ -321,6 +321,30 @@ code, pre {
     font-size: 11px;
 }
 
+.btn-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 7px;
+    line-height: 1;
+}
+
+#btn-toggle-queue-header {
+    color: var(--text-sub);
+    flex-shrink: 0;
+}
+
+#btn-toggle-queue-header:hover {
+    color: var(--text-main);
+    background-color: var(--bg-hover);
+}
+
+#btn-toggle-queue-header.active {
+    color: var(--accent);
+    background-color: var(--accent-subtle);
+    border-color: var(--accent-border);
+}
+
 /* ============================================================================
    TOP COMMAND BAR
    ============================================================================ */
@@ -851,11 +875,17 @@ code, pre {
 }
 
 .workspace.queue-collapsed {
-    grid-template-columns: 0px 1fr;
+    grid-template-columns: 1fr;
 }
 
 .workspace.queue-collapsed .queue-dock {
-    display: none;
+    display: none !important;
+}
+
+.workspace.queue-collapsed .library-canvas {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-width: 0;
 }
 
 /* Left Panel: Active Queue Dock */
@@ -1056,6 +1086,44 @@ code, pre {
     align-items: center;
     gap: 8px;
     flex-wrap: wrap;
+}
+
+#btn-expand-queue {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+    font-size: 11px;
+    background-color: var(--accent-subtle);
+    border-color: var(--accent-border);
+    color: var(--accent);
+    padding: 4px 9px;
+    border-radius: var(--radius-sm);
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+#btn-expand-queue:hover {
+    background-color: var(--accent);
+    color: #ffffff;
+    border-color: var(--accent);
+}
+
+#btn-expand-queue .count-pill {
+    font-size: 10px;
+    padding: 1px 5px;
+    background-color: var(--bg-card);
+    color: var(--accent);
+    border: 1px solid var(--accent-border);
+}
+
+#btn-expand-queue:hover .count-pill {
+    background-color: rgba(255, 255, 255, 0.2);
+    color: #ffffff;
+    border-color: rgba(255, 255, 255, 0.4);
+}
+
+#btn-expand-queue.hidden {
+    display: none !important;
 }
 
 .filter-chips {
@@ -2071,6 +2139,12 @@ code, pre {
     .workspace {
         grid-template-columns: 1fr;
         overflow: visible;
+    }
+    .workspace.queue-collapsed {
+        grid-template-columns: 1fr;
+    }
+    .workspace.queue-collapsed .queue-dock {
+        display: none !important;
     }
     .queue-dock {
         border-right: none;

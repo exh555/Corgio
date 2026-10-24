@@ -800,14 +800,34 @@ function renderActiveQueue(activeList) {
 function applyQueueDockState() {
     const workspace = document.getElementById('workspace');
     const expandBtn = document.getElementById('btn-expand-queue');
-    if (!workspace || !expandBtn) return;
+    const headerToggleBtn = document.getElementById('btn-toggle-queue-header');
+    if (!workspace) return;
 
     if (appState.queueCollapsed) {
         workspace.classList.add('queue-collapsed');
-        expandBtn.classList.remove('hidden');
+        if (expandBtn) expandBtn.classList.remove('hidden');
+        if (headerToggleBtn) {
+            headerToggleBtn.classList.remove('active');
+            headerToggleBtn.setAttribute('title', 'Expand Active Queue panel (press Q)');
+            headerToggleBtn.setAttribute('aria-expanded', 'false');
+        }
     } else {
         workspace.classList.remove('queue-collapsed');
-        expandBtn.classList.add('hidden');
+        if (expandBtn) expandBtn.classList.add('hidden');
+        if (headerToggleBtn) {
+            headerToggleBtn.classList.add('active');
+            headerToggleBtn.setAttribute('title', 'Collapse Active Queue panel (press Q)');
+            headerToggleBtn.setAttribute('aria-expanded', 'true');
+        }
+    }
+}
+
+function toggleQueueDock() {
+    appState.queueCollapsed = !appState.queueCollapsed;
+    localStorage.setItem('corgio_queue_collapsed', String(appState.queueCollapsed));
+    applyQueueDockState();
+    if (appState.queueCollapsed) {
+        showToast('Active Queue collapsed. Click "Show Queue" in toolbar or press Q to restore.', 'info');
     }
 }
 
@@ -2077,11 +2097,15 @@ document.addEventListener('DOMContentLoaded', () => {
         appState.queueCollapsed = true;
         localStorage.setItem('corgio_queue_collapsed', 'true');
         applyQueueDockState();
+        showToast('Active Queue collapsed. Click "Show Queue" in toolbar or press Q to restore.', 'info');
     });
     document.getElementById('btn-expand-queue')?.addEventListener('click', () => {
         appState.queueCollapsed = false;
         localStorage.setItem('corgio_queue_collapsed', 'false');
         applyQueueDockState();
+    });
+    document.getElementById('btn-toggle-queue-header')?.addEventListener('click', () => {
+        toggleQueueDock();
     });
 
     // Delegate clicks inside Active Queue list
@@ -2279,6 +2303,18 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     document.addEventListener('keydown', (e) => {
+        // Toggle Queue dock with 'q' when not typing in an input
+        if ((e.key === 'q' || e.key === 'Q') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            const tag = document.activeElement?.tagName;
+            if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT' && !document.activeElement?.isContentEditable) {
+                const anyModalOpen = document.querySelector('.modal-backdrop:not(.hidden)');
+                if (!anyModalOpen) {
+                    e.preventDefault();
+                    toggleQueueDock();
+                }
+            }
+        }
+
         if (e.key === 'Escape') {
             closePlayerModal();
             closeLogModal();
