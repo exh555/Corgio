@@ -156,27 +156,43 @@ Media downloaders routinely handle sensitive URLs, private tokens, and personal 
 
 1. **Open Unraid WebUI** and navigate to the **Docker** tab.
 2. Click **Add Container** at the bottom.
-3. Configure the settings as follows:
+3. Configure the primary container settings:
    * **Name**: `corgio`
    * **Repository**: `ghcr.io/exh555/corgio:latest`
    * **Registry**: `ghcr.io`
    * **Network Type**: `Bridge`
    * **Console shell**: `/bin/bash`
-4. Add the following **Port Mapping**:
+4. **Enable WebUI Link**:
+   * In the top-right corner of the template, toggle from **Basic View** to **Advanced View**.
+   * In the **WebUI** field, enter: `http://[IP]:[PORT:8080]/`  
+     *(This makes the clickable "WebUI" menu option appear when you click the Corgio icon in Unraid).*
+5. **Add Port Mapping**:
+   * Click **"+ Add another Path, Port, Variable, Label or Device"** at the bottom.
+   * **Config Type**: `Port`
+   * **Name**: `WebUI Port`
    * **Container Port**: `8080`
-   * **Host Port**: `8080` (or any free port on your host)
-5. Add the following **Path/Volume Mappings**:
-   * **Config Path** (`/config`):
-     * *Container Path*: `/config`
-     * *Host Path*: `/mnt/user/appdata/corgio`
-   * **Downloads Path** (`/downloads`):
-     * *Container Path*: `/downloads`
-     * *Host Path*: `/mnt/user/downloads/` (or wherever you want media saved)
-6. Add the following **Environment Variables**:
-   * **Key**: `PUID` | **Value**: `99` (Default Unraid `nobody` user ID)
-   * **Key**: `PGID` | **Value**: `100` (Default Unraid `users` group ID)
-   * **Key**: `UMASK` | **Value**: `002` (Default Unraid SMB share permission mask)
-7. Click **Apply** to start the container.
+   * **Host Port**: `8080` *(or any unused port on your host, e.g. `8085`)*
+   * **Connection Type**: `TCP`
+   * Click **Add**.
+6. **Add Path / Volume Mappings**:
+   * Click **"+ Add another Path, Port, Variable..."** again:
+     * **Config Type**: `Path`
+     * **Name**: `Config Directory`
+     * **Container Path**: `/config`
+     * **Host Path**: `/mnt/user/appdata/corgio`
+     * **Access Mode**: `Read/Write`
+   * Click **"+ Add another Path, Port, Variable..."** again:
+     * **Config Type**: `Path`
+     * **Name**: `Downloads Directory`
+     * **Container Path**: `/downloads`
+     * **Host Path**: `/mnt/user/downloads/` *(or wherever you want downloaded media saved)*
+     * **Access Mode**: `Read/Write`
+7. **Add User Permission Environment Variables**:
+   * Click **"+ Add another Path, Port, Variable..."** for each:
+     * **Config Type**: `Variable` | **Name**: `PUID` | **Key**: `PUID` | **Value**: `99` *(Default Unraid `nobody` user ID)*
+     * **Config Type**: `Variable` | **Name**: `PGID` | **Key**: `PGID` | **Value**: `100` *(Default Unraid `users` group ID)*
+     * **Config Type**: `Variable` | **Name**: `UMASK` | **Key**: `UMASK` | **Value**: `002` *(Ensures full SMB read/write share permissions)*
+8. Click **Apply** to start the container. Click the Corgio icon and select **WebUI** to access the application.
 
 ---
 
