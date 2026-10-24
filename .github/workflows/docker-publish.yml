@@ -4,6 +4,12 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - 'ca_profile.xml'
+      - '.gitignore'
+      - '.dockerignore'
     tags:
       - 'v*'
   workflow_dispatch:
