@@ -326,3 +326,11 @@ This repository includes [`.github/workflows/docker-publish.yml`](.github/workfl
 1. Push this project to a GitHub repository with GitHub Actions enabled.
 2. Push a semantic version tag (e.g., `git tag v1.0.0 && git push --tags`) or trigger the **Build and Publish Docker Image to GHCR** workflow manually from the **Actions** tab.
 3. Pull the resulting image from `ghcr.io/exh555/corgio:latest`.
+
+---
+
+## Acknowledgments
+
+* **Architecture & Direction**: Conceived, directed, and maintained by [exh555](https://github.com/exh555).
+* **Engineering**: Developed with modern AI pair-programming assistance across implementation, security hardening, and testing.
+* **Core Engines**: Powered by the incredible work of the [`yt-dlp`](https://github.com/yt-dlp/yt-dlp) and [`FFmpeg`](https://ffmpeg.org/) teams.
