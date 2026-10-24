@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en" data-palette="pembroke" data-mode="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Corgio</title>
+    <link rel="icon" type="image/svg+xml" href="/static/logo.svg">
+    <link rel="stylesheet" href="/static/style.css?v=4.3">
+    <script src="/static/theme-init.js?v=4.3"></script>
+</head>
+<body>
+    <div class="app-shell">
+        <!-- ==================== TOP COMMAND BAR ==================== -->
+        <header class="command-bar">
+            <div class="brand" title="Corgio">
+                <div class="brand-mark" aria-hidden="true">
+                    <svg class="corgi-logo-svg" width="40" height="40" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <rect x="4" y="4" width="92" height="92" rx="22" fill="var(--bg-card)" stroke="var(--border-strong)" stroke-width="3.5"/>
+                        <g class="corgi-head-group">
+                            <!-- Left & Right Ears (perk up on hover) -->
+                            <path class="corgi-ear-left" d="M21 43 L14 11 L43 28 Z" fill="#d97724" stroke="#111827" stroke-width="3" stroke-linejoin="round"/>
+                            <path class="corgi-ear-left" d="M23 37 L18 17 L37 28 Z" fill="#b85a14"/>
+                            <path class="corgi-ear-right" d="M79 43 L86 11 L57 28 Z" fill="#d97724" stroke="#111827" stroke-width="3" stroke-linejoin="round"/>
+                            <path class="corgi-ear-right" d="M77 37 L82 17 L63 28 Z" fill="#b85a14"/>
+                            <!-- Main Corgi Head Contour -->
+                            <path d="M22 39 C30 25 70 25 78 39 C85 50 83 68 72 77 C62 85 38 85 28 77 C17 68 15 50 22 39 Z" fill="#d97724" stroke="#111827" stroke-width="3" stroke-linejoin="round"/>
+                            <!-- Playful Tongue Blep (peeks out on hover) -->
+                            <path class="corgi-tongue" d="M45 73 C45 81 55 81 55 73 Z" fill="#f472b6" stroke="#111827" stroke-width="2.2"/>
+                            <!-- Forehead White Blaze = "I" -->
+                            <rect x="45.5" y="27" width="9" height="23" rx="4.5" fill="#ffffff"/>
+                            <!-- Muzzle White Ring + Nose = "O" -->
+                            <circle cx="50" cy="64" r="13" fill="#ffffff"/>
+                            <circle cx="50" cy="64" r="5.8" fill="#111827"/>
+                            <!-- Eyes -->
+                            <circle class="corgi-eye" cx="33.5" cy="48" r="3.8" fill="#111827"/>
+                            <circle class="corgi-eye" cx="66.5" cy="48" r="3.8" fill="#111827"/>
+                            <circle cx="32.3" cy="46.8" r="1.2" fill="#ffffff"/>
+                            <circle cx="65.3" cy="46.8" r="1.2" fill="#ffffff"/>
+                        </g>
+                    </svg>
+                </div>
+                <span class="brand-title">Corgio</span>
+            </div>
+
+            <!-- Central URL Omnibox -->
+            <form id="download-form" class="omnibox" autocomplete="off">
+                <span class="omnibox-icon" aria-hidden="true">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                    </svg>
+                </span>
+                <input
+                    type="url"
+                    id="url-input"
+                    class="omnibox-input"
+                    placeholder="Paste video or audio URL to download..."
+                    required
+                    aria-label="Video or audio URL"
+                >
+                <span class="kbd-hint" title="Press Cmd+V / Ctrl+V or drag &amp; drop a link anywhere on the page">⌘V / Drop</span>
+                <div class="omnibox-divider"></div>
+                <select id="format-select" class="omnibox-select" aria-label="Output format">
+                    <option value="mp4">MP4 Video</option>
+                    <option value="best">Best Container</option>
+                    <option value="audio">MP3 Audio</option>
+                </select>
+                <div class="omnibox-divider"></div>
+                <button type="button" class="btn btn-sm" id="btn-toggle-options" title="Configure download options and defaults">
+                    Options ▾
+                </button>
+                <button type="button" class="btn btn-sm" id="btn-paste-go" title="Read URL from clipboard and start download immediately">
+                    Paste &amp; Go
+                </button>
+                <button type="submit" class="btn btn-primary btn-sm" id="download-btn">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="7 10 12 15 17 10"/>
+                        <line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                    <span>Download</span>
+                </button>
+            </form>
+
+            <!-- Right Telemetry & Theme/System Controls -->
+            <div class="sys-cluster">
+                <div class="disk-widget" id="disk-widget" title="Storage usage in downloads directory">
+                    <span class="disk-label">Disk</span>
+                    <div class="disk-bar">
+                        <div class="disk-fill" id="disk-fill" style="width: 0%;"></div>
+                    </div>
+                    <span class="disk-val" id="disk-text">-- GB free</span>
+                </div>
+
+                <button type="button" class="btn btn-sm" id="btn-open-theme-modal" title="Choose UI color theme and appearance mode">
+                    <span class="theme-btn-dot" id="theme-btn-dot"></span>
+                    <span id="theme-btn-label">Pembroke · Light</span>
+                </button>
+
+                <button type="button" class="btn btn-sm" id="btn-toggle-system" title="Open System Maintenance, Versions &amp; Activity Audit Drawer">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                        <line x1="8" y1="21" x2="16" y2="21"/>
+                        <line x1="12" y1="17" x2="12" y2="21"/>
+                    </svg>
+                    <span>System &amp; Logs</span>
+                    <span class="update-dot hidden" id="header-update-dot" title="Component update available"></span>
+                </button>
+
+                <button type="button" class="btn btn-sm" id="btn-open-account-modal" title="Account credentials &amp; sign out">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                        <circle cx="12" cy="7" r="4"/>
+                    </svg>
+                    <span id="account-btn-label">admin</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- ==================== DRAWER 1: DOWNLOAD OPTIONS & DEFAULTS ==================== -->
+        <section class="drawer" id="drawer-options" aria-label="Download Options and Default Settings">
+            <div class="drawer-header">
+                <div class="drawer-title-group">
+                    <h2 class="drawer-title">Download Options &amp; Default Settings</h2>
+                    <span class="drawer-subtitle">Values entered here apply to the next download, or click "Save as Defaults" to persist them.</span>
+                </div>
+                <button type="button" class="btn btn-xs" id="btn-close-options">Close ✕</button>
+            </div>
+
+            <div class="options-grid">
+                <div class="field">
+                    <label for="speed-input">Speed Limit</label>
+                    <input type="text" id="speed-input" placeholder="e.g. 5M or 500K (blank = unlimited)">
+                </div>
+
+                <div class="field">
+                    <label for="subfolder-input">Custom Subfolder</label>
+                    <input type="text" id="subfolder-input" placeholder="e.g. movies/archive (inside /downloads)">
+                </div>
+
+                <div class="field">
+                    <label for="custom-args-input">Additional yt-dlp CLI Flags</label>
+                    <input type="text" id="custom-args-input" placeholder="e.g. --geo-bypass --embed-chapters">
+                </div>
+            </div>
+
+            <div class="options-footer">
+                <div class="checkbox-cluster">
+                    <label class="checkbox-row" for="subs-input">
+                        <input type="checkbox" id="subs-input">
+                        <span>Embed Subtitles (<code>--write-subs --embed-subs</code>)</span>
+                    </label>
+
+                    <label class="checkbox-row" for="setting-access-logs">
+                        <input type="checkbox" id="setting-access-logs">
+                        <span>Enable Server HTTP Access Logs (<code>uvicorn.access</code>)</span>
+                    </label>
+                </div>
+
+                <div class="options-actions">
+                    <button type="button" class="btn btn-sm" id="btn-reset-options" title="Revert fields to saved defaults">Reset</button>
+                    <button type="button" class="btn btn-primary btn-sm" id="btn-save-defaults">Save as Defaults</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== DRAWER 2: SYSTEM, MAINTENANCE & PRIVACY AUDIT ==================== -->
+        <section class="drawer" id="drawer-system" aria-label="System Maintenance and Activity Audit">
+            <div class="drawer-header">
+                <div class="drawer-title-group">
+                    <h2 class="drawer-title">System Telemetry, Maintenance &amp; Activity Audit</h2>
+                    <span class="drawer-subtitle">Manage core extraction engines, synchronize library folders, and inspect or purge activity logs.</span>
+                </div>
+                <button type="button" class="btn btn-xs" id="btn-close-system">Close ✕</button>
+            </div>
+
+            <div class="sys-bento">
+                <!-- Card 1: Engine Versions & Storage -->
+                <div class="sys-card">
+                    <div class="sys-card-header">
+                        <span>Engine Versions &amp; Storage</span>
+                        <span class="status-tag status-ok" id="yt-dlp-update-badge">Up to date</span>
+                    </div>
+                    <div class="sys-kv-list">
+                        <div class="sys-kv">
+                            <span>Corgio Version</span>
+                            <strong id="sys-app-version">v1.0.0</strong>
+                        </div>
+                        <div class="sys-kv">
+                            <span>yt-dlp Version</span>
+                            <strong id="sys-ytdlp-version">Loading...</strong>
+                        </div>
+                        <div class="sys-kv">
+                            <span>FFmpeg Version</span>
+                            <strong id="sys-ffmpeg-version">Loading...</strong>
+                        </div>
+                        <div class="sys-kv">
+                            <span>Downloads Path</span>
+                            <strong id="sys-downloads-dir" class="truncate-path">/downloads</strong>
+                        </div>
+                        <div class="sys-kv">
+                            <span>Storage Telemetry</span>
+                            <strong id="sys-disk-detail">-- / -- GB</strong>
+                        </div>
+                    </div>
+                    <div class="sys-actions">
+                        <button type="button" class="btn btn-xs" id="check-updates-btn">Check Updates</button>
+                        <button type="button" class="btn btn-xs btn-primary" id="update-btn">Update Engines</button>
+                        <button type="button" class="btn btn-xs" id="scan-btn" title="Scan downloads directory for added or missing media files">Scan Folder</button>
+                    </div>
+                </div>
+
+                <!-- Card 2: Activity Audit Log -->
+                <div class="sys-card sys-card-wide">
+                    <div class="sys-card-header">
+                        <span>System &amp; Download Activity Log (<span id="activity-count">0</span>)</span>
+                        <div class="sys-card-actions">
+                            <button type="button" class="btn btn-xs" id="refresh-logs-btn">Refresh</button>
+                            <button type="button" class="btn btn-xs btn-danger" id="clear-logs-btn">Clear Log</button>
+                        </div>
+                    </div>
+                    <div class="audit-table-container">
+                        <table class="audit-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 155px;">Timestamp (UTC)</th>
+                                    <th style="width: 155px;">Event</th>
+                                    <th>Summary (Click row to inspect)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="activity-logs-tbody">
+                                <tr>
+                                    <td colspan="3" class="empty-cell">No activity logs recorded.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== MAIN WORKSPACE (QUEUE DOCK + MEDIA LIBRARY) ==================== -->
+        <div class="workspace" id="workspace">
+            <!-- Left Panel: Active Queue Dock -->
+            <aside class="queue-dock" id="queue-dock" aria-label="Active Download Queue">
+                <div class="panel-header">
+                    <div class="panel-title-wrap">
+                        <span>Active Queue</span>
+                        <span class="count-pill" id="active-count-badge">0</span>
+                    </div>
+                    <button type="button" class="btn btn-xs" id="btn-collapse-queue" title="Collapse Active Queue panel">
+                        Collapse ◂
+                    </button>
+                </div>
+                <div class="queue-list" id="active-downloads-list">
+                    <div class="queue-empty">
+                        <p class="queue-empty-title">No active downloads</p>
+                        <p class="queue-empty-sub">Paste a link above to start downloading. Active jobs show live stream telemetry and 4-stage pipeline progress here.</p>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Right Panel: Media Library Canvas -->
+            <main class="library-canvas" id="library-canvas">
+                <!-- Library Toolbar -->
+                <div class="library-toolbar">
+                    <div class="toolbar-left">
+                        <button type="button" class="btn btn-sm hidden" id="btn-expand-queue" title="Show Active Queue panel">
+                            ▸ Queue (<span id="expand-queue-count">0</span>)
+                        </button>
+                        <div class="filter-chips" id="filter-chips-container" role="tablist" aria-label="Library filters">
+                            <button type="button" class="chip active" data-filter="all">All (0)</button>
+                        </div>
+                    </div>
+
+                    <div class="toolbar-right">
+                        <div class="search-box">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="11" cy="11" r="8"/>
+                                <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                            </svg>
+                            <input type="text" id="search-input" placeholder="Filter title, domain, format..." aria-label="Search library">
+                        </div>
+
+                        <div class="sort-cluster">
+                            <select id="sort-select" class="toolbar-select" aria-label="Sort library by">
+                                <option value="date_added">Sort: Date Added</option>
+                                <option value="title">Sort: Title</option>
+                                <option value="file_size">Sort: File Size</option>
+                                <option value="duration">Sort: Duration</option>
+                                <option value="play_count">Sort: Play Count</option>
+                                <option value="domain">Sort: Domain</option>
+                            </select>
+                            <button type="button" class="btn btn-sm" id="sort-order-btn" title="Toggle ascending / descending sort order">↓</button>
+                        </div>
+
+                        <div class="segmented" role="group" aria-label="Library view mode">
+                            <button type="button" id="btn-view-table" class="active" title="Traditional Dense Table View">Table</button>
+                            <button type="button" id="btn-view-grid" title="Flat Card Grid View">Grid</button>
+                        </div>
+
+                        <button type="button" class="btn btn-sm" id="btn-batch-mode" title="Toggle multi-select mode for batch retry or purge">
+                            Select
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Batch Multi-Select Action Bar -->
+                <div class="batch-bar hidden" id="batch-bar">
+                    <div class="batch-bar-left">
+                        <label class="checkbox-row" for="batch-select-all">
+                            <input type="checkbox" id="batch-select-all">
+                            <span>Select All Visible</span>
+                        </label>
+                        <span class="batch-divider">|</span>
+                        <span><strong id="batch-count">0</strong> item(s) selected</span>
+                    </div>
+                    <div class="batch-bar-actions">
+                        <button type="button" class="btn btn-xs" id="btn-batch-retry">Retry Selected</button>
+                        <button type="button" class="btn btn-xs btn-danger" id="btn-batch-delete">Purge Selected &amp; Logs</button>
+                        <button type="button" class="btn btn-xs" id="btn-batch-cancel">Done</button>
+                    </div>
+                </div>
+
+                <!-- Library Content Scroll Area -->
+                <div class="library-scroll">
+                    <!-- Traditional Dense Table View (Default) -->
+                    <div id="library-table-wrap" class="table-wrap">
+                        <table class="media-table">
+                            <thead>
+                                <tr>
+                                    <th class="col-check">
+                                        <input type="checkbox" id="table-select-all" aria-label="Select all visible rows">
+                                    </th>
+                                    <th class="col-preview">Preview</th>
+                                    <th class="col-title">Title &amp; File</th>
+                                    <th class="col-domain">Source</th>
+                                    <th class="col-format">Format</th>
+                                    <th class="col-size">Size</th>
+                                    <th class="col-plays">Plays</th>
+                                    <th class="col-date">Added</th>
+                                    <th class="col-actions">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="library-table-body">
+                                <tr>
+                                    <td colspan="9" class="empty-cell">Loading media library...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Flat Card Grid View -->
+                    <div id="library-grid-wrap" class="media-grid hidden"></div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL 1: MEDIA PLAYER ==================== -->
+    <div id="player-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="player-title">
+        <div class="modal-content modal-lg">
+            <div class="modal-header">
+                <h3 id="player-title" class="modal-title">Media Player</h3>
+                <div class="modal-header-actions">
+                    <a id="player-download-link" href="#" class="btn btn-xs" download>Save File</a>
+                    <button type="button" class="btn btn-xs" id="close-player">Close ✕</button>
+                </div>
+            </div>
+            <div class="modal-body player-body">
+                <video id="video-player" controls preload="metadata"></video>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL 2: LIVE CONSOLE LOGS ==================== -->
+    <div id="log-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="log-modal-title">
+        <div class="modal-content modal-lg">
+            <div class="modal-header">
+                <h3 id="log-modal-title" class="modal-title">Downloader &amp; Encoder Console Output</h3>
+                <div class="modal-header-actions">
+                    <button type="button" class="btn btn-xs" id="copy-log-btn">Copy Output</button>
+                    <button type="button" class="btn btn-xs" id="close-log">Close ✕</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <pre id="log-content" class="console-pre">Connecting to log stream...</pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL 3: TECHNICAL METADATA ==================== -->
+    <div id="metadata-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="metadata-modal-title">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="metadata-modal-title" class="modal-title">Media Stream &amp; File Metadata</h3>
+                <button type="button" class="btn btn-xs" id="close-metadata">Close ✕</button>
+            </div>
+            <div class="modal-body" id="metadata-body">
+                <!-- Populated dynamically -->
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL 4: PURGE CONFIRMATION ==================== -->
+    <div id="delete-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="delete-modal-title">
+        <div class="modal-content modal-sm">
+            <div class="modal-header">
+                <h3 id="delete-modal-title" class="modal-title text-danger">Confirm Item &amp; Log Purge</h3>
+                <button type="button" class="btn btn-xs" id="cancel-delete-top">Close ✕</button>
+            </div>
+            <div class="modal-body">
+                <p id="delete-modal-desc" class="modal-desc">
+                    Are you sure you want to purge this item?
+                </p>
+
+                <div class="purge-checklist">
+                    <div class="purge-check-item">✓ Terminates active <code>yt-dlp</code> / <code>ffmpeg</code> child processes</div>
+                    <div class="purge-check-item">✓ Removes isolated <code>.work/{id}</code> fragments &amp; local thumbnail</div>
+                    <div class="purge-check-item">✓ Deletes SQLite records &amp; checkpoints WAL (<code>secure_delete=ON</code>)</div>
+                    <div class="purge-check-item">✓ Purges app activity &amp; console logs (note: OS/ZFS snapshots &amp; SSD wear-leveling are managed by the host)</div>
+                </div>
+
+                <label class="checkbox-box" for="delete-file-checkbox">
+                    <input type="checkbox" id="delete-file-checkbox" checked>
+                    <div>
+                        <strong>Also delete media file(s) from disk</strong>
+                        <p>Removes the downloaded file from <code>/downloads</code> and cleans up empty domain folders.</p>
+                    </div>
+                </label>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-sm" id="cancel-delete">Cancel</button>
+                    <button type="button" class="btn btn-danger btn-sm" id="confirm-delete">Purge Item &amp; Logs</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL 5: ACTIVITY LOG DETAIL ==================== -->
+    <div id="activity-detail-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="activity-detail-title">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="activity-detail-title" class="modal-title">Activity Event Detail</h3>
+                <button type="button" class="btn btn-xs" id="close-activity-detail">Close ✕</button>
+            </div>
+            <div class="modal-body" id="activity-detail-body">
+                <!-- Populated dynamically -->
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL 6: SIGN-IN GATE ==================== -->
+    <div id="auth-modal" class="modal auth-gate-modal hidden" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title">
+        <div class="modal-content modal-sm auth-card">
+            <div class="auth-card-brand brand">
+                <div class="brand-mark" aria-hidden="true">
+                    <svg class="corgi-logo-svg" width="44" height="44" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <rect x="4" y="4" width="92" height="92" rx="22" fill="var(--bg-card)" stroke="var(--border-strong)" stroke-width="3.5"/>
+                        <g class="corgi-head-group">
+                            <path class="corgi-ear-left" d="M21 43 L14 11 L43 28 Z" fill="#d97724" stroke="#111827" stroke-width="3" stroke-linejoin="round"/>
+                            <path class="corgi-ear-left" d="M23 37 L18 17 L37 28 Z" fill="#b85a14"/>
+                            <path class="corgi-ear-right" d="M79 43 L86 11 L57 28 Z" fill="#d97724" stroke="#111827" stroke-width="3" stroke-linejoin="round"/>
+                            <path class="corgi-ear-right" d="M77 37 L82 17 L63 28 Z" fill="#b85a14"/>
+                            <path d="M22 39 C30 25 70 25 78 39 C85 50 83 68 72 77 C62 85 38 85 28 77 C17 68 15 50 22 39 Z" fill="#d97724" stroke="#111827" stroke-width="3" stroke-linejoin="round"/>
+                            <path class="corgi-tongue" d="M45 73 C45 81 55 81 55 73 Z" fill="#f472b6" stroke="#111827" stroke-width="2.2"/>
+                            <rect x="45.5" y="27" width="9" height="23" rx="4.5" fill="#ffffff"/>
+                            <circle cx="50" cy="64" r="13" fill="#ffffff"/>
+                            <circle cx="50" cy="64" r="5.8" fill="#111827"/>
+                            <circle class="corgi-eye" cx="33.5" cy="48" r="3.8" fill="#111827"/>
+                            <circle class="corgi-eye" cx="66.5" cy="48" r="3.8" fill="#111827"/>
+                            <circle cx="32.3" cy="46.8" r="1.2" fill="#ffffff"/>
+                            <circle cx="65.3" cy="46.8" r="1.2" fill="#ffffff"/>
+                        </g>
+                    </svg>
+                </div>
+                <div class="auth-brand-text">
+                    <h3 id="auth-modal-title" class="auth-brand-title">Corgio</h3>
+                    <span class="auth-brand-sub">Sign in to access your media workspace</span>
+                </div>
+            </div>
+
+            <div class="modal-body">
+                <div id="auth-default-banner" class="auth-notice">
+                    <strong>First Launch Setup</strong>
+                    <span>First time signing in? Refer to the Corgio documentation on GitHub for initial credentials.</span>
+                </div>
+
+                <form id="auth-form" autocomplete="on">
+                    <div class="field" style="margin-bottom: 10px;">
+                        <label for="auth-username-input">Username</label>
+                        <input type="text" id="auth-username-input" placeholder="Enter username..." autocomplete="username" required>
+                    </div>
+                    <div class="field" style="margin-bottom: 12px;">
+                        <label for="auth-password-input">Password</label>
+                        <input type="password" id="auth-password-input" placeholder="Enter password..." autocomplete="current-password" required>
+                    </div>
+                    <div class="auth-form-row">
+                        <label class="checkbox-row" for="auth-remember-input">
+                            <input type="checkbox" id="auth-remember-input" checked>
+                            <span>Keep me signed in (30 days)</span>
+                        </label>
+                    </div>
+                    <button type="submit" class="btn btn-primary auth-submit-btn" id="auth-submit-btn">Sign In</button>
+                </form>
+
+                <div class="auth-recovery-hint">
+                    Locked out? Restart container with <code>RESET_PASSWORD=true</code> to restore initial credentials.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL 6B: ACCOUNT & PASSWORD SETTINGS ==================== -->
+    <div id="account-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="account-modal-title">
+        <div class="modal-content modal-sm">
+            <div class="modal-header">
+                <h3 id="account-modal-title" class="modal-title">Account &amp; Password</h3>
+                <div class="modal-header-actions">
+                    <button type="button" class="btn btn-xs btn-danger" id="btn-logout" title="End session and sign out">Sign Out</button>
+                    <button type="button" class="btn btn-xs" id="close-account-modal">Close ✕</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div id="account-forced-banner" class="auth-notice auth-notice-warn hidden">
+                    <strong>Set Your Permanent Password</strong>
+                    <span>You signed in with the initial default password. Please choose a new password (min 6 characters) to secure Corgio.</span>
+                </div>
+
+                <form id="account-form" autocomplete="off">
+                    <div class="field" style="margin-bottom: 10px;">
+                        <label for="account-username-input">Username</label>
+                        <input type="text" id="account-username-input" placeholder="admin" required>
+                    </div>
+                    <div class="field" style="margin-bottom: 10px;">
+                        <label for="account-current-password">Current Password</label>
+                        <input type="password" id="account-current-password" placeholder="Enter current password..." required>
+                    </div>
+                    <div class="field" style="margin-bottom: 10px;">
+                        <label for="account-new-password">New Password (min 6 chars)</label>
+                        <input type="password" id="account-new-password" placeholder="Enter new password..." minlength="6" required>
+                    </div>
+                    <div class="field" style="margin-bottom: 14px;">
+                        <label for="account-confirm-password">Confirm New Password</label>
+                        <input type="password" id="account-confirm-password" placeholder="Repeat new password..." minlength="6" required>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-sm" id="cancel-account-modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary btn-sm" id="save-account-btn">Save Credentials</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL 7: THEME & APPEARANCE ==================== -->
+    <div id="theme-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="theme-modal-title">
+        <div class="modal-content modal-sm">
+            <div class="modal-header">
+                <h3 id="theme-modal-title" class="modal-title">Theme &amp; Appearance</h3>
+                <button type="button" class="btn btn-xs" id="close-theme-modal">Close ✕</button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-desc">Choose a color theme and appearance mode. Saved automatically in your browser.</p>
+
+                <div class="theme-preset-grid" id="theme-preset-grid">
+                    <!-- Pembroke Light (Default) -->
+                    <button type="button" class="theme-card active" data-preset-palette="pembroke" data-preset-mode="light">
+                        <div class="theme-card-top">
+                            <span class="theme-card-name">Pembroke · Light</span>
+                            <span class="theme-card-check">✓</span>
+                        </div>
+                        <div class="theme-swatches">
+                            <span class="swatch-pill" style="background: #f5f6f8; border-color: #c9d0dc;"></span>
+                            <span class="swatch-pill" style="background: #ffffff; border-color: #c9d0dc;"></span>
+                            <span class="swatch-pill" style="background: #d06b18; border-color: #d06b18;"></span>
+                            <span class="swatch-pill" style="background: #0284c7; border-color: #0284c7;"></span>
+                        </div>
+                        <span class="theme-card-sub">Alabaster surfaces, Pembroke Amber actions &amp; Steel telemetry</span>
+                    </button>
+
+                    <!-- Pembroke Dark -->
+                    <button type="button" class="theme-card" data-preset-palette="pembroke" data-preset-mode="dark">
+                        <div class="theme-card-top">
+                            <span class="theme-card-name">Pembroke · Dark</span>
+                            <span class="theme-card-check">✓</span>
+                        </div>
+                        <div class="theme-swatches">
+                            <span class="swatch-pill" style="background: #0f1216; border-color: #343d4b;"></span>
+                            <span class="swatch-pill" style="background: #171b21; border-color: #343d4b;"></span>
+                            <span class="swatch-pill" style="background: #d97724; border-color: #d97724;"></span>
+                            <span class="swatch-pill" style="background: #38bdf8; border-color: #38bdf8;"></span>
+                        </div>
+                        <span class="theme-card-sub">Obsidian surfaces, Pembroke Amber actions &amp; Steel telemetry</span>
+                    </button>
+
+                    <!-- GitHub Light -->
+                    <button type="button" class="theme-card" data-preset-palette="github" data-preset-mode="light">
+                        <div class="theme-card-top">
+                            <span class="theme-card-name">GitHub · Light</span>
+                            <span class="theme-card-check">✓</span>
+                        </div>
+                        <div class="theme-swatches">
+                            <span class="swatch-pill" style="background: #f6f8fa; border-color: #d0d7de;"></span>
+                            <span class="swatch-pill" style="background: #ffffff; border-color: #d0d7de;"></span>
+                            <span class="swatch-pill" style="background: #0969da; border-color: #0969da;"></span>
+                            <span class="swatch-pill" style="background: #54aeff; border-color: #54aeff;"></span>
+                        </div>
+                        <span class="theme-card-sub">Classic GitHub daylight slate &amp; blue accents</span>
+                    </button>
+
+                    <!-- GitHub Dark -->
+                    <button type="button" class="theme-card" data-preset-palette="github" data-preset-mode="dark">
+                        <div class="theme-card-top">
+                            <span class="theme-card-name">GitHub · Dark</span>
+                            <span class="theme-card-check">✓</span>
+                        </div>
+                        <div class="theme-swatches">
+                            <span class="swatch-pill" style="background: #0d1117; border-color: #30363d;"></span>
+                            <span class="swatch-pill" style="background: #161b22; border-color: #30363d;"></span>
+                            <span class="swatch-pill" style="background: #1f6feb; border-color: #1f6feb;"></span>
+                            <span class="swatch-pill" style="background: #2f81f7; border-color: #2f81f7;"></span>
+                        </div>
+                        <span class="theme-card-sub">Classic GitHub dark slate &amp; blue accents</span>
+                    </button>
+                </div>
+
+                <div class="modal-footer" style="margin-top: 14px;">
+                    <button type="button" class="btn btn-primary btn-sm" id="done-theme-modal">Done</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== FULL-PAGE DRAG & DROP OVERLAY ==================== -->
+    <div id="drop-zone-overlay" class="drop-zone-overlay hidden" aria-hidden="true">
+        <div class="drop-zone-box">
+            <div class="drop-zone-icon">
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+            </div>
+            <div class="drop-zone-title">Drop Link Anywhere to Download</div>
+            <div class="drop-zone-sub">Hold <code>Shift</code> or drop directly onto the top URL bar to edit options before downloading</div>
+        </div>
+    </div>
+
+    <!-- ==================== TOAST NOTIFICATION CONTAINER ==================== -->
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+    <script src="/static/app.js?v=4.3"></script>
+</body>
+</html>

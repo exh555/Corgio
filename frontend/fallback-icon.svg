@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" width="100%" height="100%" fill="none">
+  <rect width="800" height="450" fill="#13171d" />
+  <rect x="336" y="130" width="128" height="128" rx="24" fill="#1b2028" stroke="#2e3644" stroke-width="2" />
+  <g transform="translate(350, 144)">
+    <path d="M22 40 L17 15 L42 28 L58 28 L83 15 L78 40 C84 50 82 67 72 76 C62 84 38 84 28 76 C18 67 16 50 22 40 Z" fill="#d97724" stroke="#111827" stroke-width="3" stroke-linejoin="round"/>
+    <rect x="45.5" y="27" width="9" height="23" rx="4.5" fill="#ffffff"/>
+    <circle cx="50" cy="65" r="12.5" fill="#ffffff"/>
+    <circle cx="50" cy="65" r="5.5" fill="#111827"/>
+    <circle cx="34" cy="48" r="3.5" fill="#111827"/>
+    <circle cx="66" cy="48" r="3.5" fill="#111827"/>
+  </g>
+  <text x="400" y="298" fill="#e2e8f0" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" font-size="17" font-weight="700" text-anchor="middle" letter-spacing="2">CORGIO I/O</text>
+  <text x="400" y="326" fill="#64748b" font-family="system-ui, -apple-system, sans-serif" font-size="13" text-anchor="middle">Local Media Stream</text>
+</svg>

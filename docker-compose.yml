@@ -1,0 +1,43 @@
+services:
+  corgio:
+    build: .
+    container_name: corgio
+    ports:
+      - "8080:8080"
+    volumes:
+      - corgio-config:/config
+      - ~/Downloads/corgio:/downloads
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - UMASK=002
+      # Default first-launch credentials: admin / corgio (prompts for password change on first login)
+      # Optional overrides or recovery:
+      # - INITIAL_USERNAME=admin
+      # - INITIAL_PASSWORD=corgio
+      # - RESET_PASSWORD=true
+      # - CORGIO_AUTH_TOKEN=optional-api-bearer-token
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/auth/status', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+    restart: unless-stopped
+
+volumes:
+  corgio-config:

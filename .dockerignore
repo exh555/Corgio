@@ -1,0 +1,23 @@
+# Git & IDE
+.git
+.github
+.gitignore
+.vscode
+.DS_Store
+
+# Python & Virtual Environments
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Databases & Runtime Volumes
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+downloads/
+config/

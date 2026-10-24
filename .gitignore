@@ -1,0 +1,19 @@
+# Databases & Runtime data
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+downloads/
+config/
+
+# Python / Environment
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# OS and IDE files
+.DS_Store
+.vscode/
