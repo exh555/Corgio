@@ -1,12 +1,20 @@
-# Corgio
+<p align="center">
+  <img src="icon.svg" width="120" height="120" alt="Corgio Logo" />
+</p>
 
-> **A self-hosted, privacy-first media command deck built on `yt-dlp` and `ffmpeg` with a hardened zero-trace security architecture.**
+<h1 align="center">Corgio</h1>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Privacy: Zero-Trace](https://img.shields.io/badge/Privacy-Zero--Trace%20by%20Design-success.svg)](#privacy-thoughtfulness-zero-trace-by-design)
-[![Security: Hardened](https://img.shields.io/badge/Security-SSRF%20%2B%20Flag%20Allowlist-blueviolet.svg)](#security-hardening)
-[![External CDNs: None](https://img.shields.io/badge/Third--Party%20CDNs-0%20(100%25%20Local)-orange.svg)](#2-self-contained-zero-cdn-frontend)
-[![Unraid: Ready](https://img.shields.io/badge/Unraid-Community%20Apps%20Ready-critical.svg)](#deployment-on-unraid)
+<p align="center">
+  <em>A self-hosted, privacy-first media command deck built on <code>yt-dlp</code> and <code>ffmpeg</code> with a hardened zero-trace security architecture.</em>
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT" /></a>
+  <a href="#privacy-thoughtfulness-zero-trace-by-design"><img src="https://img.shields.io/badge/Privacy-Zero--Trace%20by%20Design-success.svg" alt="Privacy: Zero-Trace" /></a>
+  <a href="#security-hardening"><img src="https://img.shields.io/badge/Security-SSRF%20%2B%20Flag%20Allowlist-blueviolet.svg" alt="Security: Hardened" /></a>
+  <a href="#2-self-contained-zero-cdn-frontend"><img src="https://img.shields.io/badge/Third--Party%20CDNs-0%20(100%25%20Local)-orange.svg" alt="External CDNs: None" /></a>
+  <a href="#deployment-on-unraid"><img src="https://img.shields.io/badge/Unraid-Community%20Apps%20Ready-critical.svg" alt="Unraid: Ready" /></a>
+</p>
 
 A self-hosted, privacy-first web application for downloading and managing video and audio media using `yt-dlp` and `ffmpeg`. Designed with a **Traditional Flat "Command Deck" UI**, hardened security boundaries, and a **zero-trace privacy architecture** tailored for Unraid, Docker, and home lab environments.
 
