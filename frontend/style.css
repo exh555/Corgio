@@ -734,6 +734,13 @@ code, pre {
     align-items: stretch;
 }
 
+.sys-col {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+}
+
 .sys-card {
     background-color: var(--bg-card);
     border: 1px solid var(--border);

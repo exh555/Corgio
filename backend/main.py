@@ -24,7 +24,7 @@ from backend import privacy
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
-APP_VERSION = "1.0.3"
+APP_VERSION = "1.0.4"
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9_.-]{2,32}$")
 
 MAX_LOGIN_ATTEMPTS = 5
@@ -587,6 +587,10 @@ def update_account_credentials(req: AccountUpdateRequest, request: Request, resp
 
 
 # API Routes
+COOKIES_DIR = "/config" if os.path.exists("/config") else "."
+COOKIES_FILE_PATH = os.environ.get("COOKIES_FILE", os.path.join(COOKIES_DIR, "cookies.txt"))
+
+
 @app.get("/api/status")
 def get_status():
     """Returns versions and system info without leaking internal host paths by default (L4)."""
@@ -602,6 +606,7 @@ def get_status():
         "ffmpeg_version": updater.get_ffmpeg_version(),
         "ffmpeg_friendly_version": updater.get_ffmpeg_friendly_version(),
         "js_runtime": downloader.get_js_runtime_info(),
+        "cookies_status": downloader.get_cookies_status(),
         "downloads_dir": display_dir,
         "disk_space": {
             "total": total,
@@ -610,6 +615,69 @@ def get_status():
             "percent_used": round((used / total) * 100, 1) if total > 0 else 0,
         },
     }
+
+
+@app.get("/api/cookies")
+def get_cookies_info():
+    """Returns the current state and path of stream authentication cookies."""
+    return downloader.get_cookies_status()
+
+
+@app.post("/api/cookies")
+async def upload_cookies_content(request: Request):
+    """
+    Safely saves Netscape-format cookies.txt text to the persistent configuration folder.
+    Restricted to 5MB max and verifies basic text format.
+    """
+    MAX_COOKIE_BYTES = 5 * 1024 * 1024  # 5 MB
+    content = await request.body()
+    if len(content) > MAX_COOKIE_BYTES:
+        raise HTTPException(status_code=400, detail="Cookie data exceeds 5MB limit")
+    if not content or not content.strip():
+        raise HTTPException(status_code=400, detail="Cookie data is empty")
+
+    try:
+        text = content.decode("utf-8", errors="replace").strip()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Cookie data must be plain text")
+
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        raise HTTPException(status_code=400, detail="Cookie data has no valid lines")
+
+    dest_path = COOKIES_FILE_PATH
+    os.makedirs(os.path.dirname(os.path.abspath(dest_path)), exist_ok=True)
+
+    temp_dest = dest_path + f".tmp.{os.getpid()}"
+    try:
+        with open(temp_dest, "w", encoding="utf-8") as f:
+            f.write(text + "\n")
+        os.chmod(temp_dest, 0o600)
+        os.replace(temp_dest, dest_path)
+    except Exception as e:
+        if os.path.exists(temp_dest):
+            try:
+                os.remove(temp_dest)
+            except Exception:
+                pass
+        raise HTTPException(status_code=500, detail=f"Failed to save cookies: {str(e)}")
+
+    database.add_activity_log("CONFIG", "Installed updated cookies.txt for stream authentication")
+    return {"status": "success", "message": "Cookies saved successfully", "info": downloader.get_cookies_status()}
+
+
+@app.delete("/api/cookies")
+def delete_cookies_file():
+    """Removes the persistent cookies.txt file and returns to unauthenticated mode."""
+    dest_path = COOKIES_FILE_PATH
+    if os.path.exists(dest_path):
+        try:
+            os.remove(dest_path)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to remove cookies: {str(e)}")
+
+    database.add_activity_log("CONFIG", "Removed cookies.txt from configuration folder")
+    return {"status": "deleted", "message": "Cookies removed successfully"}
 
 
 @app.post("/api/download")

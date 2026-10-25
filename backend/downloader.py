@@ -94,7 +94,7 @@ ALLOWED_VALUE_FLAGS = {
     "--audio-quality": re.compile(r"^(?:[0-9]|10|[0-9]{2,3}[Kk])$"),
     "--remux-video": re.compile(r"^(?:mp4|mkv|webm|mov|avi)$"),
     "--recode-video": re.compile(r"^(?:mp4|mkv|webm|mov|avi)$"),
-    "--extractor-args": re.compile(r"^[a-zA-Z0-9_,:;=-]{1,128}$"),
+    "--extractor-args": re.compile(r"^[a-zA-Z0-9_,:;=+/.@-]{1,1024}$"),
     "--js-runtimes": re.compile(r"^[a-zA-Z0-9_:./-]{1,128}$"),
     "--remote-components": re.compile(r"^[a-zA-Z0-9_,:;=-]{1,128}$"),
     "--limit-rate": SPEED_LIMIT_RE,
@@ -261,13 +261,59 @@ def get_js_runtime_info() -> str:
     return "None detected"
 
 
-def get_js_runtime_args(url: str = "") -> list:
+def get_cookies_path() -> str:
+    """
+    Resolves available cookies.txt file path from environment or persistent config directory.
+    Returns path string if file exists and is non-empty, otherwise empty string.
+    """
+    env_path = os.environ.get("COOKIES_FILE", "").strip()
+    if env_path and os.path.isfile(env_path) and os.path.getsize(env_path) > 0:
+        return env_path
+
+    # Standard Docker/Unraid persistent configuration location
+    config_cookies = "/config/cookies.txt"
+    if os.path.isfile(config_cookies) and os.path.getsize(config_cookies) > 0:
+        return config_cookies
+
+    # Local development or project root fallback
+    local_cookies = os.path.join(os.getcwd(), "cookies.txt")
+    if os.path.isfile(local_cookies) and os.path.getsize(local_cookies) > 0:
+        return local_cookies
+
+    return ""
+
+
+def get_cookies_status() -> dict:
+    """Returns telemetry information on whether a valid cookies.txt file is loaded."""
+    path = get_cookies_path()
+    if path:
+        try:
+            stat = os.stat(path)
+            return {
+                "active": True,
+                "path": path,
+                "filename": os.path.basename(path),
+                "size_bytes": stat.st_size,
+                "mtime": stat.st_mtime,
+            }
+        except Exception:
+            return {"active": False, "path": "", "filename": "", "size_bytes": 0, "mtime": 0}
+    return {"active": False, "path": "", "filename": "", "size_bytes": 0, "mtime": 0}
+
+
+def get_js_runtime_args(
+    url: str = "",
+    has_cookies: bool = False,
+    custom_has_extractor_args: bool = False,
+) -> list:
     """
     Detects if a supported JavaScript runtime (deno, node, bun) is available
     to enable yt-dlp's EJS solver for YouTube signature deciphering and n-challenges.
     Prioritizes Deno (yt-dlp default-enabled engine).
-    For YouTube URLs, supplies player_client=android,web to bypass SABR stream blocks
-    where web/tv formats trigger unplayable/reload errors.
+    For YouTube URLs when unauthenticated without custom extractor args,
+    supplies player_client=android,web to bypass SABR stream blocks.
+    When authenticated (has_cookies=True), omits forced client fallback so yt-dlp
+    uses official authenticated clients with full resolution streams.
     """
     args = []
     deno_bin = shutil.which("deno")
@@ -282,9 +328,11 @@ def get_js_runtime_args(url: str = "") -> list:
             if bun_bin:
                 args.extend(["--js-runtimes", f"bun:{bun_bin}"])
 
-    # For YouTube URLs, prioritize android,web player client to avoid SABR stream rejections
-    if url and is_youtube_url(url):
-        args.extend(["--extractor-args", "youtube:player_client=android,web"])
+    # For YouTube URLs, prioritize android,web player client only when unauthenticated
+    # and when user has not supplied their own --extractor-args
+    if url and is_youtube_url(url) and not custom_has_extractor_args:
+        if not has_cookies:
+            args.extend(["--extractor-args", "youtube:player_client=android,web"])
 
     return args
 
@@ -812,8 +860,10 @@ def run_yt_dlp_download(download_id, url, settings):
 
         os.makedirs(job_work_dir, exist_ok=True)
         yt_env = updater.get_yt_dlp_env()
+        db_settings = database.get_settings()
+        cookies_path = get_cookies_path()
 
-        # 1. Fetch metadata first (fast check, isolated from user config/plugins/cache/cookies)
+        # 1. Fetch metadata first (fast check, isolated from user config/plugins/cache)
         _append_log(download_id, "[system] Fetching metadata...")
         detected_playlist = False
         is_explicit_playlist = is_explicit_playlist_url(url)
@@ -824,13 +874,38 @@ def run_yt_dlp_download(download_id, url, settings):
             "--ignore-config",
             "--no-plugin-dirs",
             "--no-cache-dir",
-            "--no-cookies",
             "--dump-json",
             "--skip-download",
         ]
+        if cookies_path:
+            info_cmd.extend(["--cookies", cookies_path])
+        else:
+            info_cmd.append("--no-cookies")
+
         if not is_explicit_playlist:
             info_cmd.append("--no-playlist")
-        info_cmd.extend(get_js_runtime_args(url))
+
+        # Parse user custom flags for metadata probe to support custom extractor-args/PO tokens
+        meta_custom_args_val = settings.get("custom_args")
+        if meta_custom_args_val is None:
+            meta_custom_args_val = db_settings.get("custom_args", "")
+        meta_custom_args = []
+        if meta_custom_args_val:
+            try:
+                meta_custom_args = parse_and_validate_custom_args(meta_custom_args_val)
+            except ValueError:
+                meta_custom_args = []
+        meta_has_ext = any(a == "--extractor-args" for a in meta_custom_args)
+
+        info_cmd.extend(
+            get_js_runtime_args(
+                url,
+                has_cookies=bool(cookies_path),
+                custom_has_extractor_args=meta_has_ext,
+            )
+        )
+        if meta_custom_args:
+            info_cmd.extend(meta_custom_args)
         info_cmd.extend(["--", url])
         try:
             info_proc = subprocess.Popen(
@@ -915,7 +990,7 @@ def run_yt_dlp_download(download_id, url, settings):
             if download_id in download_progress:
                 download_progress[download_id]["stage"] = "downloading"
 
-        # 2. Build yt-dlp arguments (isolated work directory, no config/plugins/cache/cookies)
+        # 2. Build yt-dlp arguments (isolated work directory, no config/plugins/cache)
         cmd = [
             sys.executable,
             "-m",
@@ -925,12 +1000,15 @@ def run_yt_dlp_download(download_id, url, settings):
             "--newline",
             "--progress",
             "--no-cache-dir",
-            "--no-cookies",
         ]
+        if cookies_path:
+            cmd.extend(["--cookies", cookies_path])
+            _append_log(download_id, f"[system] Stream authentication: active ({os.path.basename(cookies_path)})")
+        else:
+            cmd.append("--no-cookies")
+
         if not is_explicit_playlist:
             cmd.append("--no-playlist")
-
-        db_settings = database.get_settings()
 
         # Format selection (strictly restricted to ALLOWED_FORMATS)
         format_opt = settings.get("format") or db_settings.get("default_format", "mp4")
@@ -938,7 +1016,7 @@ def run_yt_dlp_download(download_id, url, settings):
             format_opt = "mp4"
 
         if format_opt == "mp4":
-            cmd.extend(["-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"])
+            cmd.extend(["-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best"])
             cmd.extend(["--merge-output-format", "mp4"])
         elif format_opt == "best":
             cmd.extend(["-f", "bestvideo+bestaudio/best"])
@@ -999,7 +1077,11 @@ def run_yt_dlp_download(download_id, url, settings):
         # Add JavaScript challenge runtime and extractor args unless overridden by user
         has_user_js = any(a == "--js-runtimes" for a in validated_args)
         has_user_ext = any(a == "--extractor-args" for a in validated_args)
-        js_args = get_js_runtime_args(url)
+        js_args = get_js_runtime_args(
+            url,
+            has_cookies=bool(cookies_path),
+            custom_has_extractor_args=has_user_ext,
+        )
         if js_args:
             filtered_js = []
             skip_next = False

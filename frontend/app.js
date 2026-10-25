@@ -512,6 +512,10 @@ async function fetchStatus() {
             sysJs.title = data.js_runtime || 'None detected';
         }
 
+        if (data.cookies_status) {
+            updateCookiesUi(data.cookies_status);
+        }
+
         const sysDir = document.getElementById('sys-downloads-dir');
         if (sysDir && data.downloads_dir) {
             sysDir.textContent = data.downloads_dir;
@@ -552,6 +556,44 @@ async function fetchStatus() {
         await checkAndUpdateEngineStatus();
     } catch (e) {
         console.error('Error fetching status:', e);
+    }
+}
+
+function updateCookiesUi(cookies) {
+    const badge = document.getElementById('cookies-status-badge');
+    const statusText = document.getElementById('cookies-status-text');
+    const pathText = document.getElementById('cookies-path-text');
+    const sizeText = document.getElementById('cookies-size-text');
+    const deleteBtn = document.getElementById('btn-delete-cookies');
+    const sysCookies = document.getElementById('sys-cookies-status');
+
+    if (!cookies || !cookies.active) {
+        if (badge) {
+            badge.textContent = 'None';
+            badge.className = 'status-tag status-neutral';
+        }
+        if (statusText) statusText.textContent = 'None (360p fallback)';
+        if (pathText) pathText.textContent = cookies?.path || '/config/cookies.txt';
+        if (sizeText) sizeText.textContent = '--';
+        if (deleteBtn) deleteBtn.classList.add('hidden');
+        if (sysCookies) {
+            sysCookies.textContent = 'None (360p fallback)';
+            sysCookies.style.color = 'var(--text-sub)';
+        }
+        return;
+    }
+
+    if (badge) {
+        badge.textContent = 'Active';
+        badge.className = 'status-tag status-ok';
+    }
+    if (statusText) statusText.textContent = `Active (${cookies.filename || 'cookies.txt'})`;
+    if (pathText) pathText.textContent = cookies.path || '/config/cookies.txt';
+    if (sizeText) sizeText.textContent = formatBytes(cookies.size_bytes || 0);
+    if (deleteBtn) deleteBtn.classList.remove('hidden');
+    if (sysCookies) {
+        sysCookies.textContent = `Active (${cookies.filename || 'cookies.txt'})`;
+        sysCookies.style.color = 'var(--accent-color, #22c55e)';
     }
 }
 
@@ -2256,6 +2298,67 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('scan-btn')?.addEventListener('click', runFolderScan);
     document.getElementById('refresh-logs-btn')?.addEventListener('click', fetchActivityLogs);
     document.getElementById('clear-logs-btn')?.addEventListener('click', clearAllActivityLogs);
+
+    // Stream Authentication (Cookies) Management in System Drawer
+    const cookiesInput = document.getElementById('cookies-file-input');
+    const uploadCookiesBtn = document.getElementById('btn-upload-cookies');
+    const deleteCookiesBtn = document.getElementById('btn-delete-cookies');
+
+    uploadCookiesBtn?.addEventListener('click', () => {
+        cookiesInput?.click();
+    });
+
+    cookiesInput?.addEventListener('change', async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        try {
+            uploadCookiesBtn.disabled = true;
+            uploadCookiesBtn.textContent = 'Uploading...';
+            const text = await file.text();
+            const res = await apiFetch(`${API_BASE}/cookies`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+                body: text,
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                showToast(data.detail || 'Failed to upload cookies', 'error');
+            } else {
+                showToast('cookies.txt uploaded! 1080p/4K YouTube stream extraction active.', 'success');
+                updateCookiesUi(data.info);
+                fetchStatus();
+            }
+        } catch (err) {
+            showToast('Error uploading cookies: ' + err.message, 'error');
+        } finally {
+            uploadCookiesBtn.disabled = false;
+            uploadCookiesBtn.textContent = 'Upload cookies.txt';
+            cookiesInput.value = '';
+        }
+    });
+
+    deleteCookiesBtn?.addEventListener('click', async () => {
+        if (!confirm('Are you sure you want to remove cookies.txt? YouTube extraction will return to unauthenticated mode.')) {
+            return;
+        }
+        try {
+            deleteCookiesBtn.disabled = true;
+            const res = await apiFetch(`${API_BASE}/cookies`, { method: 'DELETE' });
+            if (res.ok) {
+                showToast('cookies.txt removed.', 'info');
+                updateCookiesUi({ active: false });
+                fetchStatus();
+            } else {
+                const data = await res.json();
+                showToast(data.detail || 'Failed to remove cookies', 'error');
+            }
+        } catch (err) {
+            showToast('Error removing cookies: ' + err.message, 'error');
+        } finally {
+            deleteCookiesBtn.disabled = false;
+        }
+    });
 
     document.getElementById('activity-logs-tbody')?.addEventListener('click', (e) => {
         const row = e.target.closest('tr[data-log-index]');

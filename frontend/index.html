@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Corgio</title>
     <link rel="icon" type="image/svg+xml" href="/static/logo.svg">
-    <link rel="stylesheet" href="/static/style.css?v=1.0.3">
-    <script src="/static/theme-init.js?v=1.0.3"></script>
+    <link rel="stylesheet" href="/static/style.css?v=1.0.4">
+    <script src="/static/theme-init.js?v=1.0.4"></script>
 </head>
 <body>
     <div class="app-shell">
@@ -148,6 +148,7 @@
                 <div class="field">
                     <label for="custom-args-input">Additional yt-dlp CLI Flags</label>
                     <input type="text" id="custom-args-input" placeholder="e.g. --geo-bypass --embed-chapters">
+                    <span class="field-hint" style="font-size: 11px; color: var(--text-sub); margin-top: 3px; display: block;">Supports PO tokens (<code>--extractor-args "youtube:po_token=android.gvs+..."</code>) or install cookies in System Drawer.</span>
                 </div>
             </div>
 
@@ -182,47 +183,83 @@
             </div>
 
             <div class="sys-bento">
-                <!-- Card 1: Engine Versions & Storage -->
-                <div class="sys-card">
-                    <div class="sys-card-header">
-                        <span>Engine Versions &amp; Storage</span>
-                        <span class="status-tag status-ok" id="yt-dlp-update-badge">Up to date</span>
+                <div class="sys-col">
+                    <!-- Card 1: Engine Versions & Storage -->
+                    <div class="sys-card">
+                        <div class="sys-card-header">
+                            <span>Engine Versions &amp; Storage</span>
+                            <span class="status-tag status-ok" id="yt-dlp-update-badge">Up to date</span>
+                        </div>
+                        <div class="sys-kv-list">
+                            <div class="sys-kv">
+                                <span>Corgio Version</span>
+                                <strong id="sys-app-version">v1.0.4</strong>
+                            </div>
+                            <div class="sys-kv">
+                                <span>yt-dlp Version</span>
+                                <strong id="sys-ytdlp-version">Loading...</strong>
+                            </div>
+                            <div class="sys-kv">
+                                <span>FFmpeg Version</span>
+                                <strong id="sys-ffmpeg-version">Loading...</strong>
+                            </div>
+                            <div class="sys-kv">
+                                <span>JS Engine (EJS)</span>
+                                <strong id="sys-js-runtime">Loading...</strong>
+                            </div>
+                            <div class="sys-kv">
+                                <span>Auth Cookies</span>
+                                <strong id="sys-cookies-status">Loading...</strong>
+                            </div>
+                            <div class="sys-kv">
+                                <span>Downloads Path</span>
+                                <strong id="sys-downloads-dir" class="truncate-path">/downloads</strong>
+                            </div>
+                            <div class="sys-kv">
+                                <span>Storage Telemetry</span>
+                                <strong id="sys-disk-detail">-- / -- GB</strong>
+                            </div>
+                        </div>
+                        <div class="sys-actions">
+                            <button type="button" class="btn btn-xs" id="check-updates-btn">Check Updates</button>
+                            <button type="button" class="btn btn-xs btn-primary" id="update-btn">Update Engines</button>
+                            <button type="button" class="btn btn-xs hidden" id="view-update-logs-btn" title="View core extraction engine update logs">View Logs</button>
+                            <button type="button" class="btn btn-xs" id="scan-btn" title="Scan downloads directory for added or missing media files">Scan Folder</button>
+                        </div>
                     </div>
-                    <div class="sys-kv-list">
-                        <div class="sys-kv">
-                            <span>Corgio Version</span>
-                            <strong id="sys-app-version">v1.0.3</strong>
+
+                    <!-- Card 2: Stream Authentication (cookies.txt) -->
+                    <div class="sys-card" id="card-cookies">
+                        <div class="sys-card-header">
+                            <span>Stream Authentication (Cookies)</span>
+                            <span class="status-tag status-neutral" id="cookies-status-badge">Checking...</span>
                         </div>
-                        <div class="sys-kv">
-                            <span>yt-dlp Version</span>
-                            <strong id="sys-ytdlp-version">Loading...</strong>
+                        <div class="sys-kv-list">
+                            <div class="sys-kv">
+                                <span>Cookie State</span>
+                                <strong id="cookies-status-text">None (360p fallback)</strong>
+                            </div>
+                            <div class="sys-kv">
+                                <span>Config File</span>
+                                <strong id="cookies-path-text" class="truncate-path">/config/cookies.txt</strong>
+                            </div>
+                            <div class="sys-kv">
+                                <span>File Size</span>
+                                <strong id="cookies-size-text">--</strong>
+                            </div>
                         </div>
-                        <div class="sys-kv">
-                            <span>FFmpeg Version</span>
-                            <strong id="sys-ffmpeg-version">Loading...</strong>
+                        <p style="font-size: 11px; color: var(--text-sub); margin: 0 0 6px 0; line-height: 1.4;">
+                            Provide a <code>cookies.txt</code> file to enable 1080p, 1440p, &amp; 4K downloads on YouTube and bypass bot/SABR restrictions.
+                        </p>
+                        <div class="sys-actions">
+                            <input type="file" id="cookies-file-input" accept=".txt" class="hidden">
+                            <button type="button" class="btn btn-xs btn-primary" id="btn-upload-cookies">Upload cookies.txt</button>
+                            <button type="button" class="btn btn-xs btn-danger hidden" id="btn-delete-cookies">Delete Cookies</button>
                         </div>
-                        <div class="sys-kv">
-                            <span>JS Engine (EJS)</span>
-                            <strong id="sys-js-runtime">Loading...</strong>
-                        </div>
-                        <div class="sys-kv">
-                            <span>Downloads Path</span>
-                            <strong id="sys-downloads-dir" class="truncate-path">/downloads</strong>
-                        </div>
-                        <div class="sys-kv">
-                            <span>Storage Telemetry</span>
-                            <strong id="sys-disk-detail">-- / -- GB</strong>
-                        </div>
-                    </div>
-                    <div class="sys-actions">
-                        <button type="button" class="btn btn-xs" id="check-updates-btn">Check Updates</button>
-                        <button type="button" class="btn btn-xs btn-primary" id="update-btn">Update Engines</button>
-                        <button type="button" class="btn btn-xs hidden" id="view-update-logs-btn" title="View core extraction engine update logs">View Logs</button>
-                        <button type="button" class="btn btn-xs" id="scan-btn" title="Scan downloads directory for added or missing media files">Scan Folder</button>
                     </div>
                 </div>
 
-                <!-- Card 2: Activity Audit Log -->
+                <!-- Card 3: Activity Audit Log -->
                 <div class="sys-card sys-card-wide">
                     <div class="sys-card-header">
                         <span>System &amp; Download Activity Log (<span id="activity-count">0</span>)</span>
@@ -692,6 +729,6 @@
     <!-- ==================== TOAST NOTIFICATION CONTAINER ==================== -->
     <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
-    <script src="/static/app.js?v=1.0.3"></script>
+    <script src="/static/app.js?v=1.0.4"></script>
 </body>
 </html>
