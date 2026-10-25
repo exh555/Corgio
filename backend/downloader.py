@@ -96,6 +96,7 @@ ALLOWED_VALUE_FLAGS = {
     "--recode-video": re.compile(r"^(?:mp4|mkv|webm|mov|avi)$"),
     "--extractor-args": re.compile(r"^[a-zA-Z0-9_,:;=-]{1,128}$"),
     "--js-runtimes": re.compile(r"^[a-zA-Z0-9_:./-]{1,128}$"),
+    "--remote-components": re.compile(r"^[a-zA-Z0-9_,:;=-]{1,128}$"),
     "--limit-rate": SPEED_LIMIT_RE,
     "-r": SPEED_LIMIT_RE,
 }
@@ -248,12 +249,13 @@ def is_youtube_url(raw_url: str) -> bool:
 
 def get_js_runtime_info() -> str:
     """Returns detected JavaScript runtime name and version for status inspection."""
-    for name in ("node", "nodejs", "deno", "bun"):
+    for name in ("deno", "node", "nodejs", "bun"):
         path = shutil.which(name)
         if path:
             try:
                 out = subprocess.check_output([path, "--version"], text=True, timeout=2).strip()
-                return f"{name} {out}"
+                first_line = out.splitlines()[0] if out else ""
+                return f"{name} {first_line}"
             except Exception:
                 return f"{name} ({path})"
     return "None detected"
@@ -261,26 +263,30 @@ def get_js_runtime_info() -> str:
 
 def get_js_runtime_args(url: str = "") -> list:
     """
-    Detects if a supported JavaScript runtime (node, deno, bun) is available
+    Detects if a supported JavaScript runtime (deno, node, bun) is available
     to enable yt-dlp's EJS solver for YouTube signature deciphering and n-challenges.
-    If no JS runtime is found on the host and the target is YouTube, supplies alternative
-    player client args as a graceful fallback to prevent unhandled visionos errors.
+    Prioritizes Deno (yt-dlp default-enabled engine).
+    For YouTube URLs, supplies player_client=android,web to bypass SABR stream blocks
+    where web/tv formats trigger unplayable/reload errors.
     """
-    node_bin = shutil.which("node") or shutil.which("nodejs")
-    if node_bin:
-        return ["--js-runtimes", f"node:{node_bin}"]
+    args = []
     deno_bin = shutil.which("deno")
     if deno_bin:
-        return ["--js-runtimes", f"deno:{deno_bin}"]
-    bun_bin = shutil.which("bun")
-    if bun_bin:
-        return ["--js-runtimes", f"bun:{bun_bin}"]
+        args.extend(["--js-runtimes", f"deno:{deno_bin}"])
+    else:
+        node_bin = shutil.which("node") or shutil.which("nodejs")
+        if node_bin:
+            args.extend(["--js-runtimes", f"node:{node_bin}"])
+        else:
+            bun_bin = shutil.which("bun")
+            if bun_bin:
+                args.extend(["--js-runtimes", f"bun:{bun_bin}"])
 
-    # Graceful fallback when running in environments without a JS engine
+    # For YouTube URLs, prioritize android,web player client to avoid SABR stream rejections
     if url and is_youtube_url(url):
-        return ["--extractor-args", "youtube:player_client=android,web"]
+        args.extend(["--extractor-args", "youtube:player_client=android,web"])
 
-    return []
+    return args
 
 
 def parse_and_validate_custom_args(custom_args_str: str) -> list:
@@ -990,14 +996,29 @@ def run_yt_dlp_download(download_id, url, settings):
                 _append_log(download_id, f"[system] Error: {str(e)}")
                 return
 
-        # Add JavaScript challenge runtime or fallback extractor args unless overridden by user
-        if not any(a == "--js-runtimes" for a in validated_args) and not any(a == "--extractor-args" for a in validated_args):
-            js_args = get_js_runtime_args(url)
-            if js_args:
-                cmd.extend(js_args)
-            runtime_info = get_js_runtime_info()
-            if "None" not in runtime_info:
-                _append_log(download_id, f"[system] JavaScript challenge solver active: {runtime_info}")
+        # Add JavaScript challenge runtime and extractor args unless overridden by user
+        has_user_js = any(a == "--js-runtimes" for a in validated_args)
+        has_user_ext = any(a == "--extractor-args" for a in validated_args)
+        js_args = get_js_runtime_args(url)
+        if js_args:
+            filtered_js = []
+            skip_next = False
+            for arg in js_args:
+                if skip_next:
+                    skip_next = False
+                    continue
+                if arg == "--js-runtimes" and has_user_js:
+                    skip_next = True
+                    continue
+                if arg == "--extractor-args" and has_user_ext:
+                    skip_next = True
+                    continue
+                filtered_js.append(arg)
+            if filtered_js:
+                cmd.extend(filtered_js)
+        runtime_info = get_js_runtime_info()
+        if "None" not in runtime_info:
+            _append_log(download_id, f"[system] JavaScript challenge solver active: {runtime_info}")
 
         # Strip container metadata by default unless user explicitly passed --embed-metadata or --add-metadata (F2)
         if not any(a in ("--embed-metadata", "--add-metadata") for a in validated_args):

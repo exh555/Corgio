@@ -5,12 +5,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     VIRTUAL_ENV=/opt/venv \
     PATH="/opt/venv/bin:$PATH"
 
+# Copy official pre-built Deno multi-arch binary (yt-dlp default-enabled JS challenge engine)
+COPY --from=denoland/deno:bin /deno /usr/local/bin/deno
+
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     gosu \
     ca-certificates \
-    nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # Create isolated virtual environment so non-root appuser can update yt-dlp cleanly

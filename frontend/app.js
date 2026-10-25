@@ -507,9 +507,9 @@ async function fetchStatus() {
         }
 
         const sysJs = document.getElementById('sys-js-runtime');
-        if (sysJs && data.js_runtime) {
-            sysJs.textContent = data.js_runtime;
-            sysJs.title = data.js_runtime;
+        if (sysJs) {
+            sysJs.textContent = data.js_runtime || 'None detected';
+            sysJs.title = data.js_runtime || 'None detected';
         }
 
         const sysDir = document.getElementById('sys-downloads-dir');
