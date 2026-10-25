@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Corgio</title>
     <link rel="icon" type="image/svg+xml" href="/static/logo.svg">
-    <link rel="stylesheet" href="/static/style.css?v=1.0.6">
-    <script src="/static/theme-init.js?v=1.0.6"></script>
+    <link rel="stylesheet" href="/static/style.css?v=1.0.7">
+    <script src="/static/theme-init.js?v=1.0.7"></script>
 </head>
 <body>
     <div class="app-shell">
@@ -193,7 +193,7 @@
                         <div class="sys-kv-list">
                             <div class="sys-kv">
                                 <span>Corgio Version</span>
-                                <strong id="sys-app-version">v1.0.6</strong>
+                                <strong id="sys-app-version">v1.0.7</strong>
                             </div>
                             <div class="sys-kv">
                                 <span>yt-dlp Version</span>
@@ -603,7 +603,7 @@
             <div class="modal-body">
                 <div id="account-forced-banner" class="auth-notice auth-notice-warn hidden">
                     <strong>Set Your Permanent Password</strong>
-                    <span>You signed in with the initial default password. Please choose a new password (min 6 characters) to secure Corgio.</span>
+                    <span>You signed in with the initial default password. Please choose a new password (min 8 characters) to secure Corgio.</span>
                 </div>
 
                 <form id="account-form" autocomplete="off">
@@ -616,8 +616,8 @@
                         <input type="password" id="account-current-password" placeholder="Enter current password..." required>
                     </div>
                     <div class="field" style="margin-bottom: 10px;">
-                        <label for="account-new-password">New Password (min 6 chars)</label>
-                        <input type="password" id="account-new-password" placeholder="Enter new password..." minlength="6" required>
+                        <label for="account-new-password">New Password (min 8 chars)</label>
+                        <input type="password" id="account-new-password" placeholder="Enter new password..." minlength="8" required>
                     </div>
                     <div class="field" style="margin-bottom: 14px;">
                         <label for="account-confirm-password">Confirm New Password</label>
@@ -729,6 +729,6 @@
     <!-- ==================== TOAST NOTIFICATION CONTAINER ==================== -->
     <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
-    <script src="/static/app.js?v=1.0.6"></script>
+    <script src="/static/app.js?v=1.0.7"></script>
 </body>
 </html>

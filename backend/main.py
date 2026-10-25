@@ -5,6 +5,7 @@ import shutil
 import sys
 import hmac
 import hashlib
+import json
 import logging
 import ipaddress
 from urllib.parse import urlparse
@@ -24,13 +25,14 @@ from backend import privacy
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
-APP_VERSION = "1.0.6"
+APP_VERSION = "1.0.7"
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9_.-]{2,32}$")
 
 MAX_LOGIN_ATTEMPTS = 5
 LOGIN_LOCKOUT_SECONDS = 60
 MAX_TRACKED_IPS = 1024
 _login_attempts: dict = {}
+_auth_semaphore = asyncio.Semaphore(4)
 
 MIME_MAP = {
     ".mp4": "video/mp4",
@@ -147,10 +149,6 @@ def _get_auth_method(request: Request) -> Optional[str]:
         acct = database.get_auth_account()
         if _verify_session_cookie(cookie_val, acct):
             return "session"
-        if secret:
-            expected_cookie = _compute_session_token(secret)
-            if _safe_compare_digest(cookie_val, expected_cookie):
-                return "token"
 
     return None
 
@@ -181,10 +179,27 @@ def _prune_login_attempts(now_ts: float):
 
 def _is_trusted_proxy(client_host: str) -> bool:
     trusted_raw = os.environ.get("TRUSTED_PROXIES", "").strip()
-    if not trusted_raw:
+    if not trusted_raw or not client_host or client_host == "unknown":
         return False
-    trusted = {p.strip() for p in trusted_raw.split(",") if p.strip()}
-    return "*" in trusted or client_host in trusted
+    try:
+        client_ip = ipaddress.ip_address(client_host)
+    except ValueError:
+        return False
+
+    for part in trusted_raw.split(","):
+        p = part.strip()
+        if not p or p == "*":
+            continue
+        try:
+            if "/" in p:
+                if client_ip in ipaddress.ip_network(p, strict=False):
+                    return True
+            else:
+                if client_ip == ipaddress.ip_address(p):
+                    return True
+        except ValueError:
+            continue
+    return False
 
 
 def _get_client_ip(request: Request) -> str:
@@ -192,9 +207,12 @@ def _get_client_ip(request: Request) -> str:
     if _is_trusted_proxy(client_host):
         xff = request.headers.get("x-forwarded-for", "").strip()
         if xff:
-            first_ip = xff.split(",")[0].strip()
-            if first_ip:
-                return first_ip
+            hops = [h.strip() for h in xff.split(",") if h.strip()]
+            for hop in reversed(hops):
+                if not _is_trusted_proxy(hop):
+                    return hop
+            if hops:
+                return hops[0]
     return client_host
 
 
@@ -442,7 +460,7 @@ def get_auth_status(request: Request):
 
 
 @app.post("/api/auth/login")
-def login_session(req: LoginRequest, request: Request, response: Response):
+async def login_session(req: LoginRequest, request: Request, response: Response):
     client_ip = _get_client_ip(request)
     now_ts = time.time()
     _prune_login_attempts(now_ts)
@@ -466,12 +484,14 @@ def login_session(req: LoginRequest, request: Request, response: Response):
         if req.token and secret and _safe_compare_digest(req.token.strip(), secret):
             authenticated_via_token = True
         elif req.username is not None and req.password is not None:
-            if database.verify_user_credentials(req.username, req.password):
-                authenticated_via_account = True
+            async with _auth_semaphore:
+                if await asyncio.to_thread(database.verify_user_credentials, req.username, req.password):
+                    authenticated_via_account = True
         elif req.token and not secret:
             # Allow single-field password fallback against default username if someone sends token
-            if database.verify_user_credentials(acct.get("username", "admin"), req.token):
-                authenticated_via_account = True
+            async with _auth_semaphore:
+                if await asyncio.to_thread(database.verify_user_credentials, acct.get("username", "admin"), req.token):
+                    authenticated_via_account = True
     except Exception:
         authenticated_via_token = False
         authenticated_via_account = False
@@ -550,10 +570,10 @@ def update_account_credentials(req: AccountUpdateRequest, request: Request, resp
             detail="Username must be 2–32 characters (letters, numbers, _, ., -)",
         )
 
-    if not req.new_password or len(req.new_password) < 6:
+    if not req.new_password or len(req.new_password) < 8:
         raise HTTPException(
             status_code=400,
-            detail="New password must be at least 6 characters long",
+            detail="New password must be at least 8 characters long",
         )
     if len(req.new_password) > 128:
         raise HTTPException(status_code=400, detail="New password cannot exceed 128 characters")
@@ -564,6 +584,16 @@ def update_account_credentials(req: AccountUpdateRequest, request: Request, resp
         )
 
     updated_acct = database.update_user_credentials(target_username, req.new_password)
+
+    # Cleanup temporary bootstrap credentials file if present
+    config_dir = os.path.dirname(os.path.abspath(database.DB_PATH))
+    bootstrap_file = os.path.join(config_dir, "bootstrap_credentials.txt")
+    if os.path.exists(bootstrap_file):
+        try:
+            os.remove(bootstrap_file)
+        except Exception:
+            pass
+
     ttl_seconds = 86400 * 30
     session_val = _issue_session_token(updated_acct, ttl_seconds=ttl_seconds)
     response.set_cookie(
@@ -747,9 +777,12 @@ def get_single_download(download_id: str):
                 meta["bitrate"] = probed["bitrate"]
                 changed = True
             if changed:
-                meta_json = json.dumps(meta)
-                database.update_download(download_id, metadata_json=meta_json)
-                info["metadata_json"] = meta_json
+                try:
+                    meta_json = json.dumps(meta)
+                    database.update_download(download_id, metadata_json=meta_json)
+                    info["metadata_json"] = meta_json
+                except Exception:
+                    pass
 
     return info
 

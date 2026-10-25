@@ -81,8 +81,6 @@ ALLOWED_VALUE_FLAGS = {
     "--playlist-start": re.compile(r"^[1-9][0-9]{0,4}$"),
     "--playlist-end": re.compile(r"^[1-9][0-9]{0,4}$"),
     "--max-downloads": re.compile(r"^[1-9][0-9]{0,4}$"),
-    "--sponsorblock-remove": re.compile(r"^[a-zA-Z0-9,_-]{1,64}$"),
-    "--sponsorblock-mark": re.compile(r"^[a-zA-Z0-9,_-]{1,64}$"),
     "--concurrent-fragments": re.compile(r"^(?:[1-9]|1[0-6])$"),
     "-N": re.compile(r"^(?:[1-9]|1[0-6])$"),
     "--retries": re.compile(r"^(?:[1-9][0-9]?|infinite)$"),
@@ -94,9 +92,7 @@ ALLOWED_VALUE_FLAGS = {
     "--audio-quality": re.compile(r"^(?:[0-9]|10|[0-9]{2,3}[Kk])$"),
     "--remux-video": re.compile(r"^(?:mp4|mkv|webm|mov|avi)$"),
     "--recode-video": re.compile(r"^(?:mp4|mkv|webm|mov|avi)$"),
-    "--extractor-args": re.compile(r"^[a-zA-Z0-9_,:;=+/.@-]{1,1024}$"),
-    "--js-runtimes": re.compile(r"^[a-zA-Z0-9_:./-]{1,128}$"),
-    "--remote-components": re.compile(r"^[a-zA-Z0-9_,:;=-]{1,128}$"),
+    "--extractor-args": re.compile(r"^[a-zA-Z0-9_]+:[a-zA-Z0-9_,:;=+/.@-]{1,1024}$"),
     "--limit-rate": SPEED_LIMIT_RE,
     "-r": SPEED_LIMIT_RE,
 }
@@ -1239,199 +1235,180 @@ def run_yt_dlp_download(download_id, url, settings):
             _append_log(download_id, "[system] Download stopped by user request.")
             return
 
-        if process.returncode in (0, 101):
-            # Verify candidate work_filepath is strictly inside job_work_dir and has a media extension
-            if (
-                work_filepath
-                and os.path.isfile(work_filepath)
-                and is_path_within(work_filepath, job_work_dir)
-                and os.path.splitext(work_filepath)[1].lower() in MEDIA_EXTENSIONS
-            ):
-                work_filepath = os.path.realpath(work_filepath)
-            else:
-                work_filepath = None
-                if os.path.exists(job_work_dir):
-                    candidates = [
-                        os.path.realpath(os.path.join(job_work_dir, f))
-                        for f in os.listdir(job_work_dir)
-                        if os.path.isfile(os.path.join(job_work_dir, f))
-                        and is_path_within(os.path.join(job_work_dir, f), job_work_dir)
-                        and os.path.splitext(f)[1].lower() in MEDIA_EXTENSIONS
-                    ]
-                    if candidates:
-                        work_filepath = max(candidates, key=os.path.getmtime)
+        # Collect all valid, non-empty media files completed in job_work_dir
+        candidates = []
+        if os.path.exists(job_work_dir):
+            for f in os.listdir(job_work_dir):
+                candidate_path = os.path.realpath(os.path.join(job_work_dir, f))
+                if (
+                    os.path.isfile(candidate_path)
+                    and is_path_within(candidate_path, job_work_dir)
+                    and os.path.splitext(f)[1].lower() in MEDIA_EXTENSIONS
+                    and os.path.getsize(candidate_path) > 0
+                ):
+                    candidates.append(candidate_path)
 
-            if work_filepath and os.path.exists(work_filepath):
-                filename = os.path.basename(work_filepath)
-                final_filepath = os.path.realpath(os.path.join(target_dir, filename))
+        if candidates:
+            # Sort by mtime so earlier downloaded items are processed in chronological order
+            candidates.sort(key=lambda p: os.path.getmtime(p))
+            primary_path = candidates[0]
+            filename = os.path.basename(primary_path)
+            final_filepath = os.path.realpath(os.path.join(target_dir, filename))
 
-                if not is_path_within(final_filepath, DOWNLOAD_DIR):
-                    raise ValueError("Resolved output file path is outside allowed download directory")
+            if not is_path_within(final_filepath, DOWNLOAD_DIR):
+                raise ValueError("Resolved output file path is outside allowed download directory")
 
-                with state_lock:
-                    if download_id in purged_downloads:
-                        return
-                    if download_id in download_progress:
-                        download_progress[download_id]["stage"] = "encoding"
-                        download_progress[download_id]["final_filepath"] = final_filepath
-
-                shutil.move(work_filepath, final_filepath)
-
-                if _is_cancelled_or_purged(download_id):
+            with state_lock:
+                if download_id in purged_downloads:
                     return
+                if download_id in download_progress:
+                    download_progress[download_id]["stage"] = "encoding"
+                    download_progress[download_id]["final_filepath"] = final_filepath
 
-                file_size = os.path.getsize(final_filepath)
-                file_ext = os.path.splitext(filename)[1].replace(".", "").lower()
+            shutil.move(primary_path, final_filepath)
 
-                if duration == 0 and not _is_cancelled_or_purged(download_id):
-                    duration = get_video_duration(final_filepath)
+            if _is_cancelled_or_purged(download_id):
+                return
 
-                # Post-download ffprobe inspection: enrich missing codecs, fps, and bitrate
-                probed_meta = get_video_metadata(final_filepath)
-                try:
-                    current_meta = json.loads(metadata_json) if metadata_json and metadata_json != "{}" else {}
-                except Exception:
-                    current_meta = {}
+            file_size = os.path.getsize(final_filepath)
+            file_ext = os.path.splitext(filename)[1].replace(".", "").lower()
 
-                if probed_meta:
-                    if duration == 0 and probed_meta.get("duration"):
-                        duration = probed_meta["duration"]
-                    if probed_meta.get("vcodec") and (not current_meta.get("vcodec") or current_meta.get("vcodec") in ("none", "N/A")):
-                        current_meta["vcodec"] = probed_meta["vcodec"]
-                    if probed_meta.get("acodec") and (not current_meta.get("acodec") or current_meta.get("acodec") in ("none", "N/A")):
-                        current_meta["acodec"] = probed_meta["acodec"]
-                    if probed_meta.get("fps") and not current_meta.get("fps"):
-                        current_meta["fps"] = probed_meta["fps"]
-                    if probed_meta.get("width") and not current_meta.get("width"):
-                        current_meta["width"] = probed_meta["width"]
-                    if probed_meta.get("height") and not current_meta.get("height"):
-                        current_meta["height"] = probed_meta["height"]
-                    if probed_meta.get("bitrate"):
-                        current_meta["bitrate"] = probed_meta["bitrate"]
+            if duration == 0 and not _is_cancelled_or_purged(download_id):
+                duration = get_video_duration(final_filepath)
 
-                metadata_json = json.dumps(current_meta)
+            # Post-download ffprobe inspection: enrich missing codecs, fps, and bitrate
+            probed_meta = get_video_metadata(final_filepath)
+            try:
+                current_meta = json.loads(metadata_json) if metadata_json and metadata_json != "{}" else {}
+            except Exception:
+                current_meta = {}
 
-                if _is_cancelled_or_purged(download_id):
-                    return
+            if probed_meta:
+                if duration == 0 and probed_meta.get("duration"):
+                    duration = probed_meta["duration"]
+                if probed_meta.get("vcodec") and (not current_meta.get("vcodec") or current_meta.get("vcodec") in ("none", "N/A")):
+                    current_meta["vcodec"] = probed_meta["vcodec"]
+                if probed_meta.get("acodec") and (not current_meta.get("acodec") or current_meta.get("acodec") in ("none", "N/A")):
+                    current_meta["acodec"] = probed_meta["acodec"]
+                if probed_meta.get("fps") and not current_meta.get("fps"):
+                    current_meta["fps"] = probed_meta["fps"]
+                if probed_meta.get("width") and not current_meta.get("width"):
+                    current_meta["width"] = probed_meta["width"]
+                if probed_meta.get("height") and not current_meta.get("height"):
+                    current_meta["height"] = probed_meta["height"]
+                if probed_meta.get("bitrate"):
+                    current_meta["bitrate"] = probed_meta["bitrate"]
 
-                local_thumb_rel_url = f"/api/thumbnail/{safe_id}.jpg"
-                thumb_success = False
-                if file_ext in ["mp4", "mkv", "webm", "avi", "mov"]:
-                    thumb_success = generate_video_thumbnail(
-                        final_filepath, local_thumb_path, duration=duration, download_id=download_id
+            metadata_json = json.dumps(current_meta)
+
+            if _is_cancelled_or_purged(download_id):
+                return
+
+            local_thumb_rel_url = f"/api/thumbnail/{safe_id}.jpg"
+            thumb_success = False
+            if file_ext in ["mp4", "mkv", "webm", "avi", "mov"]:
+                thumb_success = generate_video_thumbnail(
+                    final_filepath, local_thumb_path, duration=duration, download_id=download_id
+                )
+
+            if _is_cancelled_or_purged(download_id):
+                return
+
+            with state_lock:
+                if download_id in download_progress:
+                    download_progress[download_id]["stage"] = "cleaning"
+
+            final_thumbnail = local_thumb_rel_url if thumb_success else "/static/fallback-icon.svg"
+
+            is_partial = process.returncode not in (0, 101)
+            err_notice = f"Completed with partial warnings (code {process.returncode})" if is_partial else None
+
+            _append_log(download_id, f"[system] Download completed successfully. Saved to: {filename}")
+            if is_partial:
+                _append_log(download_id, f"[system] Process exited with code {process.returncode}; successfully retained finished media.")
+
+            with state_lock:
+                current_logs = list(logs_queue.get(download_id, []))
+            saved_log = "\n".join(current_logs) if current_logs else None
+
+            _safe_update_db(
+                download_id,
+                filename=filename,
+                filepath=final_filepath,
+                status="completed",
+                progress=100.0,
+                speed="0 KB/s",
+                eta="00:00",
+                file_size=file_size,
+                duration=duration,
+                thumbnail_url=final_thumbnail,
+                format=file_ext,
+                metadata_json=metadata_json,
+                download_log=saved_log,
+                error_log=err_notice,
+            )
+            _safe_activity_log(download_id, "DOWNLOAD_COMPLETE", f"Completed download: {filename}")
+            download_succeeded = True
+
+            # If there are additional media files in candidates (e.g. multi-video playlist download),
+            # safely promote each additional file into the media library instead of discarding it
+            for extra_path in candidates[1:]:
+                if not os.path.exists(extra_path):
+                    continue
+                extra_filename = os.path.basename(extra_path)
+                extra_final_path = os.path.realpath(os.path.join(target_dir, extra_filename))
+                if not is_path_within(extra_final_path, DOWNLOAD_DIR):
+                    continue
+                shutil.move(extra_path, extra_final_path)
+
+                extra_id = uuid.uuid4().hex[:12]
+                extra_size = os.path.getsize(extra_final_path)
+                extra_ext = os.path.splitext(extra_filename)[1].replace(".", "").lower()
+                extra_duration = get_video_duration(extra_final_path)
+                extra_thumb_path = os.path.join(THUMBNAIL_DIR, f"{extra_id}.jpg")
+                extra_thumb_success = False
+                if extra_ext in ["mp4", "mkv", "webm", "avi", "mov"]:
+                    extra_thumb_success = generate_video_thumbnail(
+                        extra_final_path, extra_thumb_path, duration=extra_duration, download_id=extra_id
                     )
+                extra_thumb_url = f"/api/thumbnail/{extra_id}.jpg" if extra_thumb_success else "/static/fallback-icon.svg"
+                raw_extra_title = os.path.splitext(extra_filename)[0]
+                extra_title = re.sub(r"\s*\[[a-zA-Z0-9_-]{6,}\]$", "", raw_extra_title)
 
-                if _is_cancelled_or_purged(download_id):
-                    return
+                extra_probed = get_video_metadata(extra_final_path)
+                extra_meta_json = json.dumps(extra_probed) if extra_probed else "{}"
+                if extra_duration == 0 and extra_probed.get("duration"):
+                    extra_duration = extra_probed["duration"]
 
-                with state_lock:
-                    if download_id in download_progress:
-                        download_progress[download_id]["stage"] = "cleaning"
-
-                final_thumbnail = local_thumb_rel_url if thumb_success else "/static/fallback-icon.svg"
-
-                _append_log(download_id, f"[system] Download completed successfully. Saved to: {filename}")
-                with state_lock:
-                    current_logs = list(logs_queue.get(download_id, []))
-                saved_log = "\n".join(current_logs) if current_logs else None
-
-                _safe_update_db(
-                    download_id,
-                    filename=filename,
-                    filepath=final_filepath,
-                    status="completed",
+                database.add_download(extra_id, safe_url, title=extra_title, status="completed")
+                database.update_download(
+                    extra_id,
+                    filename=extra_filename,
+                    filepath=extra_final_path,
+                    duration=extra_duration,
+                    file_size=extra_size,
+                    thumbnail_url=extra_thumb_url,
+                    format=extra_ext,
                     progress=100.0,
                     speed="0 KB/s",
                     eta="00:00",
-                    file_size=file_size,
-                    duration=duration,
-                    thumbnail_url=final_thumbnail,
-                    format=file_ext,
-                    metadata_json=metadata_json,
-                    download_log=saved_log,
-                    error_log=None,
+                    metadata_json=extra_meta_json,
+                    download_log=f"[system] Downloaded as part of playlist item from {safe_url}\n[system] File: {extra_filename}",
                 )
-                _safe_activity_log(download_id, "DOWNLOAD_COMPLETE", f"Completed download: {filename}")
-                download_succeeded = True
-
-                # If there are additional media files in job_work_dir (e.g. multi-video playlist download),
-                # safely promote each additional file into the media library instead of discarding it
-                if os.path.exists(job_work_dir):
-                    remaining_candidates = [
-                        os.path.realpath(os.path.join(job_work_dir, f))
-                        for f in os.listdir(job_work_dir)
-                        if os.path.isfile(os.path.join(job_work_dir, f))
-                        and is_path_within(os.path.join(job_work_dir, f), job_work_dir)
-                        and os.path.splitext(f)[1].lower() in MEDIA_EXTENSIONS
-                    ]
-                    for extra_path in remaining_candidates:
-                        if not os.path.exists(extra_path):
-                            continue
-                        extra_filename = os.path.basename(extra_path)
-                        extra_final_path = os.path.realpath(os.path.join(target_dir, extra_filename))
-                        if not is_path_within(extra_final_path, DOWNLOAD_DIR):
-                            continue
-                        shutil.move(extra_path, extra_final_path)
-
-                        extra_id = uuid.uuid4().hex[:12]
-                        extra_size = os.path.getsize(extra_final_path)
-                        extra_ext = os.path.splitext(extra_filename)[1].replace(".", "").lower()
-                        extra_duration = get_video_duration(extra_final_path)
-                        extra_thumb_path = os.path.join(THUMBNAIL_DIR, f"{extra_id}.jpg")
-                        extra_thumb_success = False
-                        if extra_ext in ["mp4", "mkv", "webm", "avi", "mov"]:
-                            extra_thumb_success = generate_video_thumbnail(
-                                extra_final_path, extra_thumb_path, duration=extra_duration, download_id=extra_id
-                            )
-                        extra_thumb_url = f"/api/thumbnail/{extra_id}.jpg" if extra_thumb_success else "/static/fallback-icon.svg"
-                        raw_extra_title = os.path.splitext(extra_filename)[0]
-                        extra_title = re.sub(r"\s*\[[a-zA-Z0-9_-]{6,}\]$", "", raw_extra_title)
-
-                        extra_probed = get_video_metadata(extra_final_path)
-                        extra_meta_json = json.dumps(extra_probed) if extra_probed else "{}"
-                        if extra_duration == 0 and extra_probed.get("duration"):
-                            extra_duration = extra_probed["duration"]
-
-                        database.add_download(extra_id, safe_url, title=extra_title, status="completed")
-                        database.update_download(
-                            extra_id,
-                            filename=extra_filename,
-                            filepath=extra_final_path,
-                            duration=extra_duration,
-                            file_size=extra_size,
-                            thumbnail_url=extra_thumb_url,
-                            format=extra_ext,
-                            progress=100.0,
-                            speed="0 KB/s",
-                            eta="00:00",
-                            metadata_json=extra_meta_json,
-                            download_log=f"[system] Downloaded as part of playlist item from {safe_url}\n[system] File: {extra_filename}",
-                        )
-                        _append_log(download_id, f"[system] Playlist item completed: {extra_filename}")
-                        _safe_activity_log(extra_id, "DOWNLOAD_COMPLETE", f"Completed playlist item: {extra_filename}")
-            else:
-                _safe_update_db(
-                    download_id,
-                    status="failed",
-                    error_log="Could not locate completed media file",
-                )
-                _append_log(download_id, "[system] Error: Could not locate completed download file.")
-                _safe_activity_log(
-                    download_id,
-                    "DOWNLOAD_FAILED",
-                    f"Failed download of video ID {download_id}: completed media file not found.",
-                )
+                _append_log(download_id, f"[system] Playlist item completed: {extra_filename}")
+                _safe_activity_log(extra_id, "DOWNLOAD_COMPLETE", f"Completed playlist item: {extra_filename}")
         else:
+            err_msg = f"Downloader exited with code {process.returncode}" if process.returncode != 0 else "Could not locate completed media file"
             _safe_update_db(
                 download_id,
                 status="failed",
-                error_log=f"Downloader exited with code {process.returncode}",
+                error_log=err_msg,
             )
-            _append_log(download_id, f"[system] Error: yt-dlp exited with code {process.returncode}")
+            _append_log(download_id, f"[system] Error: {err_msg}")
             _safe_activity_log(
                 download_id,
                 "DOWNLOAD_FAILED",
-                f"Download failed with exit code {process.returncode}",
+                f"Download failed for video ID {download_id}: {err_msg}",
             )
 
     except Exception:

@@ -2606,8 +2606,8 @@ document.addEventListener('DOMContentLoaded', () => {
             showToast('Please enter both your current password and a new password.', 'error');
             return;
         }
-        if (newPassword.length < 6) {
-            showToast('New password must be at least 6 characters long.', 'error');
+        if (newPassword.length < 8) {
+            showToast('New password must be at least 8 characters long.', 'error');
             return;
         }
         if (newPassword !== confirmPassword) {

@@ -99,14 +99,31 @@ def _ensure_auth_table_and_seed(cursor: sqlite3.Cursor, allow_reset: bool = Fals
     cursor.execute("SELECT * FROM auth_account WHERE id = 1")
     existing = cursor.fetchone()
 
+    config_dir = os.path.dirname(os.path.abspath(DB_PATH)) or "."
+    reset_sentinel = os.path.join(config_dir, ".password_reset_done")
+
     init_user = os.environ.get("INITIAL_USERNAME", DEFAULT_ADMIN_USER).strip() or "admin"
-    init_pass = os.environ.get("INITIAL_PASSWORD", DEFAULT_ADMIN_PASS) or "corgio"
+    explicit_pass = os.environ.get("INITIAL_PASSWORD", "").strip()
+
     reset_requested = allow_reset and (
         os.environ.get("RESET_PASSWORD", "").lower() in ("1", "true", "yes")
         or os.environ.get("CORGIO_RESET_PASSWORD", "").lower() in ("1", "true", "yes")
     )
+    if reset_requested and os.path.exists(reset_sentinel):
+        print(
+            "[auth] WARNING: RESET_PASSWORD is set in environment, but password reset was already executed. "
+            "Skipping to prevent recurring credential overwrites. Remove RESET_PASSWORD to clear this notice."
+        )
+        reset_requested = False
 
     if not existing:
+        is_random_bootstrap = False
+        if explicit_pass:
+            init_pass = explicit_pass
+        else:
+            init_pass = secrets.token_urlsafe(12)
+            is_random_bootstrap = True
+
         salt_hex = secrets.token_hex(16)
         pwd_hash = _hash_password(init_pass, salt_hex)
         session_secret = secrets.token_hex(32)
@@ -120,9 +137,26 @@ def _ensure_auth_table_and_seed(cursor: sqlite3.Cursor, allow_reset: bool = Fals
             """,
             (init_user, salt_hex, pwd_hash, session_secret, utc_now_iso()),
         )
+
+        if is_random_bootstrap:
+            cred_file = os.path.join(config_dir, "bootstrap_credentials.txt")
+            try:
+                with open(cred_file, "w", encoding="utf-8") as f:
+                    f.write(f"Username: {init_user}\nPassword: {init_pass}\n")
+                os.chmod(cred_file, 0o600)
+            except Exception:
+                pass
+            print("=" * 76)
+            print("[SECURITY] Initial bootstrap admin credentials generated:")
+            print(f"[SECURITY]   Username: {init_user}")
+            print(f"[SECURITY]   Password: {init_pass}")
+            print(f"[SECURITY] Credentials saved to: {cred_file} (mode 0600)")
+            print("[SECURITY] Please sign in and set a custom password to complete setup.")
+            print("=" * 76)
     elif reset_requested:
+        reset_pass = explicit_pass or secrets.token_urlsafe(12)
         salt_hex = secrets.token_hex(16)
-        pwd_hash = _hash_password(init_pass, salt_hex)
+        pwd_hash = _hash_password(reset_pass, salt_hex)
         session_secret = secrets.token_hex(32)
         cursor.execute(
             """
@@ -137,6 +171,27 @@ def _ensure_auth_table_and_seed(cursor: sqlite3.Cursor, allow_reset: bool = Fals
             """,
             (init_user, salt_hex, pwd_hash, session_secret, utc_now_iso()),
         )
+        try:
+            with open(reset_sentinel, "w", encoding="utf-8") as f:
+                f.write(f"Password reset executed at {utc_now_iso()}\n")
+            os.chmod(reset_sentinel, 0o600)
+        except Exception:
+            pass
+
+        cred_file = os.path.join(config_dir, "bootstrap_credentials.txt")
+        try:
+            with open(cred_file, "w", encoding="utf-8") as f:
+                f.write(f"Username: {init_user}\nPassword: {reset_pass}\n")
+            os.chmod(cred_file, 0o600)
+        except Exception:
+            pass
+        print("=" * 76)
+        print(f"[SECURITY] Admin credentials successfully reset for user '{init_user}':")
+        if not explicit_pass:
+            print(f"[SECURITY]   Temporary Password: {reset_pass}")
+        print(f"[SECURITY] Created one-shot marker: {reset_sentinel}")
+        print("[SECURITY] Remove RESET_PASSWORD from container environment when convenient.")
+        print("=" * 76)
 
 
 def _enforce_db_permissions():
