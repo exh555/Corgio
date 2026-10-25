@@ -1124,7 +1124,12 @@ def run_yt_dlp_download(download_id, url, settings):
         _append_log(download_id, f"[system] Target domain folder: {domain_folder}")
 
         # Direct all downloads and ffmpeg encoding into the isolated per-job work directory first
-        output_template = os.path.join(job_work_dir, "%(title)s [%(id)s].%(ext)s")
+        # Format: %(title)s [%(id)s] [%(resolution,format_id)s] [<short_id>].%(ext)s
+        # Guarantees multi-resolution and concurrent duplicate jobs never clobber each other.
+        short_id = download_id[:6]
+        output_template = os.path.join(
+            job_work_dir, f"%(title)s [%(id)s] [%(resolution,format_id)s] [{short_id}].%(ext)s"
+        )
         cmd.extend(["-o", output_template])
 
         # User custom arguments override (validated against strict canonical allowlist)
@@ -1372,6 +1377,16 @@ def run_yt_dlp_download(download_id, url, settings):
             primary_path = candidates[0]
             filename = os.path.basename(primary_path)
             final_filepath = os.path.realpath(os.path.join(target_dir, filename))
+
+            # Collision defense: if destination file already exists on disk, append unique download suffix
+            if os.path.exists(final_filepath):
+                stem, ext = os.path.splitext(filename)
+                short_id = download_id[:6]
+                if short_id not in stem:
+                    filename = f"{stem} [{short_id}]{ext}"
+                else:
+                    filename = f"{stem}_{download_id[:10]}{ext}"
+                final_filepath = os.path.realpath(os.path.join(target_dir, filename))
 
             if not is_path_within(final_filepath, DOWNLOAD_DIR):
                 raise ValueError("Resolved output file path is outside allowed download directory")

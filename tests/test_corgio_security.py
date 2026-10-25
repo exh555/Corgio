@@ -311,6 +311,49 @@ def test_path_confinement():
         assert downloader.is_path_within(os.path.join(parent_dir, "../escape.mp4"), parent_dir) is False
 
 
+# ============================================================================
+# 9. Database Filepath Reference Counting (Multi-Resolution Collision Defense)
+# ============================================================================
+def test_filepath_reference_counting():
+    """Validates that count_downloads_with_filepath accurately counts references and excludes targets."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        test_db = os.path.join(tmp_dir, "test_ref.db")
+        old_db_path = database.DB_PATH
+        database.DB_PATH = test_db
+        try:
+            database.init_db()
+            fake_file = os.path.realpath(os.path.join(tmp_dir, "video [1080p] [abc123].mp4"))
+            with open(fake_file, "w") as f:
+                f.write("sample")
+
+            # 0 references initially
+            assert database.count_downloads_with_filepath(fake_file) == 0
+
+            # Add first download record pointing to fake_file
+            database.add_download("dl_001", "https://example.com/watch?v=1", status="completed")
+            database.update_download("dl_001", filepath=fake_file)
+            assert database.count_downloads_with_filepath(fake_file) == 1
+            assert database.count_downloads_with_filepath(fake_file, exclude_id="dl_001") == 0
+
+            # Add second download record pointing to the same fake_file
+            database.add_download("dl_002", "https://example.com/watch?v=1", status="completed")
+            database.update_download("dl_002", filepath=fake_file)
+            assert database.count_downloads_with_filepath(fake_file) == 2
+            assert database.count_downloads_with_filepath(fake_file, exclude_id="dl_001") == 1
+            assert database.count_downloads_with_filepath(fake_file, exclude_id="dl_002") == 1
+
+            # Delete first download
+            database.delete_download("dl_001")
+            assert database.count_downloads_with_filepath(fake_file) == 1
+            assert database.count_downloads_with_filepath(fake_file, exclude_id="dl_002") == 0
+
+            # Delete second download
+            database.delete_download("dl_002")
+            assert database.count_downloads_with_filepath(fake_file) == 0
+        finally:
+            database.DB_PATH = old_db_path
+
+
 if __name__ == "__main__":
     test_funcs = [v for k, v in list(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in test_funcs:

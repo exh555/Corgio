@@ -26,7 +26,7 @@ from backend import privacy
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
-APP_VERSION = "1.2.2"
+APP_VERSION = "1.2.3"
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9_.-]{2,32}$")
 
 MAX_LOGIN_ATTEMPTS = 5
@@ -930,12 +930,15 @@ def delete_video_download(download_id: str, delete_file: bool = Query(False)):
         parent_dir = None
         filepath = info.get("filepath")
         if filepath and downloader.is_path_within(filepath, downloader.DOWNLOAD_DIR):
-            if os.path.exists(filepath):
+            norm_filepath = os.path.realpath(filepath)
+            # Reference check: Only unlink physical file if no other active download record references it
+            other_refs = database.count_downloads_with_filepath(norm_filepath, exclude_id=download_id)
+            if other_refs == 0 and os.path.exists(norm_filepath):
                 try:
-                    os.remove(filepath)
+                    os.remove(norm_filepath)
                 except Exception:
                     pass
-            parent_dir = os.path.dirname(filepath)
+            parent_dir = os.path.dirname(norm_filepath)
         else:
             domain = info.get("domain") or database.extract_base_domain(info.get("url"))
             if domain:

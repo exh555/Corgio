@@ -481,6 +481,32 @@ def delete_download(download_id):
         conn.close()
 
 
+def count_downloads_with_filepath(filepath: str, exclude_id: str = None) -> int:
+    """
+    Returns the count of active download records referencing the specified filepath,
+    optionally excluding a specific download_id being purged (defense against shared file unlinking).
+    """
+    if not filepath:
+        return 0
+    with db_lock:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        norm_path = os.path.realpath(filepath)
+        if exclude_id is not None:
+            cursor.execute(
+                "SELECT COUNT(*) FROM downloads WHERE filepath = ? AND id != ?",
+                (norm_path, str(exclude_id)),
+            )
+        else:
+            cursor.execute(
+                "SELECT COUNT(*) FROM downloads WHERE filepath = ?",
+                (norm_path,),
+            )
+        row = cursor.fetchone()
+        conn.close()
+        return int(row[0]) if row else 0
+
+
 def add_activity_log(event_type, message, download_id=None):
     safe_msg = privacy.redact_urls_in_text(str(message))[:1000]
     with db_lock:
