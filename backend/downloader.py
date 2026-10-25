@@ -310,10 +310,8 @@ def get_js_runtime_args(
     Detects if a supported JavaScript runtime (deno, node, bun) is available
     to enable yt-dlp's EJS solver for YouTube signature deciphering and n-challenges.
     Prioritizes Deno (yt-dlp default-enabled engine).
-    For YouTube URLs when unauthenticated without custom extractor args,
-    supplies player_client=android,web to bypass SABR stream blocks.
-    When authenticated (has_cookies=True), omits forced client fallback so yt-dlp
-    uses official authenticated clients with full resolution streams.
+    Leaves YouTube player client negotiation to default and embedded clients without forcing
+    the Android client, avoiding unauthenticated GVS PO token restrictions on adaptive formats.
     """
     args = []
     deno_bin = shutil.which("deno")
@@ -327,12 +325,6 @@ def get_js_runtime_args(
             bun_bin = shutil.which("bun")
             if bun_bin:
                 args.extend(["--js-runtimes", f"bun:{bun_bin}"])
-
-    # For YouTube URLs, prioritize android,web player client only when unauthenticated
-    # and when user has not supplied their own --extractor-args
-    if url and is_youtube_url(url) and not custom_has_extractor_args:
-        if not has_cookies:
-            args.extend(["--extractor-args", "youtube:player_client=android,web"])
 
     return args
 
