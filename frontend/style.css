@@ -311,6 +311,19 @@ code, pre {
     color: #ffffff;
 }
 
+.btn-danger-soft {
+    background-color: var(--danger-bg);
+    border-color: var(--danger-border);
+    color: var(--danger);
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.btn-danger-soft:hover:not(:disabled) {
+    background-color: var(--danger);
+    border-color: var(--danger);
+    color: #ffffff;
+}
+
 .btn-sm {
     padding: 6px 11px;
     font-size: 12px;
@@ -1114,6 +1127,129 @@ code, pre {
     background-color: var(--bg-app);
 }
 
+/* Active Pipeline Tracker Banner */
+.active-pipeline-banner {
+    background-color: var(--accent-subtle);
+    border-bottom: 1px solid var(--accent-border);
+    padding: 7px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    flex-shrink: 0;
+}
+
+.pipeline-banner-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex: 1;
+}
+
+.pipeline-badge {
+    background-color: var(--accent);
+    color: #ffffff;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: var(--radius-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    flex-shrink: 0;
+}
+
+.pipeline-title {
+    font-weight: 600;
+    color: var(--text-main);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pipeline-banner-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.pipeline-metrics {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-sub);
+    font-variant-numeric: tabular-nums;
+}
+
+.pipeline-metrics strong {
+    color: var(--text-main);
+}
+
+/* Right Panel: Live Technical Inspector (3-Pane Command Deck) */
+.inspector-dock {
+    display: none;
+    background-color: var(--bg-panel);
+    border-left: 1px solid var(--border);
+    overflow-y: auto;
+    min-height: 0;
+}
+
+.inspector-body {
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    flex: 1;
+}
+
+.inspector-card {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.inspector-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.inspector-card-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--text-sub);
+}
+
+.inspector-kv-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.inspector-pre {
+    max-height: 220px;
+    font-size: 11px;
+    line-height: 1.4;
+    overflow-y: auto;
+    background-color: var(--console-bg);
+    color: var(--console-text);
+    border-radius: var(--radius-xs);
+    padding: 8px;
+    margin: 0;
+}
+
 .library-toolbar {
     display: flex;
     align-items: center;
@@ -1421,8 +1557,8 @@ code, pre {
 .col-actions { width: 192px; text-align: right !important; }
 
 .thumb-mini {
-    width: 64px;
-    height: 36px;
+    width: 76px;
+    height: 44px;
     border-radius: var(--radius-xs);
     background-color: var(--bg-app);
     border: 1px solid var(--border);
@@ -1430,6 +1566,14 @@ code, pre {
     overflow: hidden;
     cursor: pointer;
     flex-shrink: 0;
+    display: block;
+    padding: 0;
+}
+
+.thumb-mini:focus-visible,
+.m-thumb:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
 }
 
 .thumb-mini img {
@@ -1439,17 +1583,56 @@ code, pre {
     display: block;
 }
 
+.thumb-play-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(0, 0, 0, 0.18);
+    opacity: 0.92;
+    transition: opacity 0.18s ease, background-color 0.18s ease;
+    pointer-events: none;
+}
+
+.thumb-play-circle {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background-color: rgba(255, 255, 255, 0.94);
+    color: #111827;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.15s ease;
+}
+
+.thumb-mini:hover .thumb-play-overlay,
+.m-thumb:hover .thumb-play-overlay {
+    opacity: 1;
+    background-color: rgba(0, 0, 0, 0.28);
+}
+
+.thumb-mini:hover .thumb-play-circle,
+.m-thumb:hover .thumb-play-circle {
+    transform: scale(1.12);
+    background-color: #ffffff;
+}
+
 .thumb-mini-dur {
     position: absolute;
     bottom: 2px;
     right: 2px;
-    background-color: rgba(0, 0, 0, 0.82);
+    background-color: rgba(0, 0, 0, 0.85);
     color: #ffffff;
     font-family: var(--font-mono);
-    font-size: 9px;
-    padding: 0px 3px;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 4px;
     border-radius: 2px;
     font-variant-numeric: tabular-nums;
+    z-index: 2;
 }
 
 .row-title-text {
@@ -2174,15 +2357,22 @@ code, pre {
 /* ============================================================================
    RESPONSIVE & VIEWPORT BREAKPOINTS
    ============================================================================ */
-@media (min-width: 1600px) {
+@media (min-width: 1500px) {
+    .workspace {
+        grid-template-columns: 320px 1fr 340px;
+    }
+    .workspace.queue-collapsed {
+        grid-template-columns: 1fr 340px;
+    }
+    .inspector-dock {
+        display: flex;
+        flex-direction: column;
+    }
     .table-wrap {
-        max-width: 1760px;
+        max-width: 100%;
     }
     .media-grid {
-        max-width: 1760px;
-    }
-    .media-table .col-title {
-        max-width: 680px;
+        max-width: 100%;
     }
     .options-grid {
         max-width: 1200px;

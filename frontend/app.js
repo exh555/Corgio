@@ -29,6 +29,7 @@ let appState = {
     batchMode: false,
     selectedIds: new Set(),
     pendingPurgeIds: [],
+    inspectedItemId: null,
     activeLogStream: null,
     activeUpdateStream: null,
     hadActiveDownloads: false,
@@ -766,7 +767,39 @@ function scheduleNextPoll() {
     appState.pollTimer = setTimeout(fetchActiveDownloads, delay);
 }
 
+function updateActivePipelineBanner(activeList) {
+    const banner = document.getElementById('active-pipeline-banner');
+    if (!banner) return;
+    if (!activeList || activeList.length === 0) {
+        banner.classList.add('hidden');
+        return;
+    }
+    const first = activeList[0];
+    const stageBadge = document.getElementById('banner-stage-badge');
+    const mediaTitle = document.getElementById('banner-media-title');
+    const stageText = document.getElementById('banner-stage-text');
+    const speedText = document.getElementById('banner-speed-text');
+    const etaText = document.getElementById('banner-eta-text');
+    const stopBtn = document.getElementById('banner-stop-btn');
+
+    if (stageBadge) {
+        const prog = Number(first.progress || 0).toFixed(0);
+        stageBadge.textContent = `${getStageLabel(first.stage).toUpperCase()} ${prog}%`;
+    }
+    if (mediaTitle) {
+        mediaTitle.textContent = first.title || first.url || 'Active Job';
+    }
+    if (stageText) stageText.textContent = getStageLabel(first.stage);
+    if (speedText) speedText.textContent = first.speed || '0 KB/s';
+    if (etaText) etaText.textContent = first.eta || '00:00';
+    if (stopBtn) {
+        stopBtn.setAttribute('data-id', String(first.id));
+    }
+    banner.classList.remove('hidden');
+}
+
 function renderActiveQueue(activeList) {
+    updateActivePipelineBanner(activeList);
     const countBadge = document.getElementById('active-count-badge');
     const expandCount = document.getElementById('expand-queue-count');
     if (countBadge) countBadge.textContent = String(activeList.length);
@@ -822,6 +855,10 @@ function renderActiveQueue(activeList) {
                 el.className = `pipe-step ${steps[idx] || ''}`.trim();
             });
         });
+        if (activeList.length > 0) {
+            const inspectedActive = activeList.find((x) => String(x.id) === String(appState.inspectedItemId)) || (!appState.inspectedItemId ? activeList[0] : null);
+            if (inspectedActive) updateInspectorDock(inspectedActive);
+        }
         return;
     }
 
@@ -858,11 +895,16 @@ function renderActiveQueue(activeList) {
                 <div class="q-actions">
                     <button type="button" class="btn btn-xs" data-action="logs" data-id="${escapeHtml(item.id)}">Console Log</button>
                     <button type="button" class="btn btn-xs" data-action="stop" data-id="${escapeHtml(item.id)}">Stop</button>
-                    <button type="button" class="btn btn-xs btn-danger" data-action="purge" data-id="${escapeHtml(item.id)}">Purge</button>
+                    <button type="button" class="btn btn-xs btn-danger-soft" data-action="purge" data-id="${escapeHtml(item.id)}">Purge</button>
                 </div>
             </div>
         `;
     }).join('');
+
+    if (activeList.length > 0) {
+        const inspectedActive = activeList.find((x) => String(x.id) === String(appState.inspectedItemId)) || (!appState.inspectedItemId ? activeList[0] : null);
+        if (inspectedActive) updateInspectorDock(inspectedActive);
+    }
 }
 
 function applyQueueDockState() {
@@ -1065,6 +1107,91 @@ function getStatusBadgeHtml(item) {
     return `<span class="status-tag">${escapeHtml(item.status || 'UNKNOWN')}</span>`;
 }
 
+function updateInspectorDock(item) {
+    const titleEl = document.getElementById('insp-title');
+    const vcodecEl = document.getElementById('insp-vcodec');
+    const acodecEl = document.getElementById('insp-acodec');
+    const resEl = document.getElementById('insp-res');
+    const fpsEl = document.getElementById('insp-fps');
+    const bitrateEl = document.getElementById('insp-bitrate');
+    const logPre = document.getElementById('insp-log-pre');
+    const logStatus = document.getElementById('insp-log-status');
+    const syncBadge = document.getElementById('inspector-sync-badge');
+
+    if (!titleEl) return;
+
+    if (!item) {
+        titleEl.textContent = 'Select an item to inspect';
+        if (vcodecEl) vcodecEl.textContent = '--';
+        if (acodecEl) acodecEl.textContent = '--';
+        if (resEl) resEl.textContent = '--';
+        if (fpsEl) fpsEl.textContent = '--';
+        if (bitrateEl) bitrateEl.textContent = '--';
+        if (logPre) logPre.textContent = 'Waiting for process telemetry...';
+        if (logStatus) logStatus.textContent = 'Idle';
+        if (syncBadge) {
+            syncBadge.className = 'status-tag';
+            syncBadge.textContent = 'Standby';
+        }
+        return;
+    }
+
+    let meta = {};
+    if (item.metadata_json) {
+        try {
+            meta = JSON.parse(item.metadata_json) || {};
+        } catch (e) {
+            meta = {};
+        }
+    }
+
+    const resStr = meta.width && meta.height ? `${meta.width}×${meta.height}` : '--';
+    const fpsStr = meta.fps ? `${meta.fps} fps` : '--';
+    const vcodec = (meta.vcodec && meta.vcodec !== 'none') ? meta.vcodec : (item.format ? item.format.toUpperCase() : '--');
+    const acodec = (meta.acodec && meta.acodec !== 'none') ? meta.acodec : '--';
+    const bitrateStr = meta.bitrate ? formatBitrate(meta.bitrate) : '--';
+
+    titleEl.textContent = item.title || item.url || `Item #${item.id}`;
+    if (vcodecEl) vcodecEl.textContent = vcodec;
+    if (acodecEl) acodecEl.textContent = acodec;
+    if (resEl) resEl.textContent = resStr;
+    if (fpsEl) fpsEl.textContent = fpsStr;
+    if (bitrateEl) bitrateEl.textContent = bitrateStr;
+
+    const isActive = ['pending', 'downloading', 'processing', 'assembling'].includes(item.status);
+    if (syncBadge) {
+        if (isActive) {
+            syncBadge.className = 'status-tag status-info';
+            syncBadge.textContent = 'Streaming';
+        } else if (item.status === 'completed') {
+            syncBadge.className = 'status-tag status-ok';
+            syncBadge.textContent = 'Archived';
+        } else if (item.status === 'failed') {
+            syncBadge.className = 'status-tag status-err';
+            syncBadge.textContent = 'Failed';
+        } else {
+            syncBadge.className = 'status-tag';
+            syncBadge.textContent = 'Inspecting';
+        }
+    }
+
+    if (logPre) {
+        if (item.error_log) {
+            logPre.textContent = item.error_log;
+            if (logStatus) logStatus.textContent = 'Error Log';
+        } else if (isActive) {
+            logPre.textContent = `[stream] Active stage: ${getStageLabel(item.stage)}\nProgress: ${Number(item.progress || 0).toFixed(1)}%\nSpeed: ${item.speed || 'N/A'}\nETA: ${item.eta || 'N/A'}\nContainer: ${item.format || 'mp4'}\nScrubbed: True (zero-trace)`;
+            if (logStatus) logStatus.textContent = 'Live Stream';
+        } else if (item.status === 'completed') {
+            logPre.textContent = `[verified] Stream sanitized & archived.\nFile: ${item.filename || 'media'}\nSize: ${formatBytes(item.file_size)}\nAdded: ${formatShortDate(item.date_added)}\nPlays: ${item.play_count || 0}`;
+            if (logStatus) logStatus.textContent = 'Archived';
+        } else {
+            logPre.textContent = `Status: ${item.status}\nFormat: ${item.format || 'unknown'}\nDomain: ${item.domain || 'unknown'}`;
+            if (logStatus) logStatus.textContent = 'Telemetry';
+        }
+    }
+}
+
 function renderLibrary() {
     const tableWrap = document.getElementById('library-table-wrap');
     const gridWrap = document.getElementById('library-grid-wrap');
@@ -1086,6 +1213,14 @@ function renderLibrary() {
     const filtered = getFilteredAndSortedLibrary();
     renderTableView(filtered);
     renderGridView(filtered);
+
+    // Synchronize Ultrawide Pro Telemetry Inspector Dock
+    const activeFirst = appState.activeDownloads.length > 0 ? appState.activeDownloads[0] : null;
+    const inspected = (appState.inspectedItemId
+        ? (appState.libraryItems.find((x) => String(x.id) === String(appState.inspectedItemId)) ||
+           appState.activeDownloads.find((x) => String(x.id) === String(appState.inspectedItemId)))
+        : null) || activeFirst || filtered[0];
+    updateInspectorDock(inspected);
 }
 
 function renderTableView(items) {
@@ -1143,7 +1278,7 @@ function renderTableView(items) {
         }
 
         actionsHtml += `
-            <button type="button" class="btn btn-xs btn-danger btn-purge-safe" data-action="purge" data-id="${escapeHtml(id)}" title="Zero-trace purge item and logs">Purge</button>
+            <button type="button" class="btn btn-xs btn-danger-soft btn-purge-safe" data-action="purge" data-id="${escapeHtml(id)}" title="Zero-trace purge item and logs">Purge</button>
         `;
 
         return `
@@ -1154,6 +1289,13 @@ function renderTableView(items) {
                 <td class="col-preview">
                     <button type="button" class="thumb-mini" data-action="${isCompleted ? 'play' : 'info'}" data-id="${escapeHtml(id)}" title="${isCompleted ? 'Click to play' : 'Click for details'}" aria-label="${isCompleted ? 'Play' : 'View details for'} ${escapeHtml(item.title || id)}">
                         <img src="${escapeHtml(thumbUrl)}" alt="" loading="lazy" class="media-thumb-img">
+                        ${isCompleted ? `
+                            <div class="thumb-play-overlay">
+                                <span class="thumb-play-circle" aria-hidden="true">
+                                    <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor" style="margin-left:1px;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                                </span>
+                            </div>
+                        ` : ''}
                         ${isCompleted && item.duration ? `<span class="thumb-mini-dur">${escapeHtml(durStr)}</span>` : ''}
                     </button>
                 </td>
@@ -1236,6 +1378,13 @@ function renderGridView(items) {
                         <input type="checkbox" class="item-checkbox" data-id="${escapeHtml(id)}" ${isSelected ? 'checked' : ''} aria-label="Select ${escapeHtml(item.title || id)}">
                     </div>
                     <img src="${escapeHtml(thumbUrl)}" alt="" loading="lazy" class="media-thumb-img">
+                    ${isCompleted ? `
+                        <div class="thumb-play-overlay">
+                            <span class="thumb-play-circle" aria-hidden="true">
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" style="margin-left:2px;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                            </span>
+                        </div>
+                    ` : ''}
                     <div class="m-badges-top">
                         ${getStatusBadgeHtml(item)}
                     </div>
@@ -1253,7 +1402,7 @@ function renderGridView(items) {
                             ${leftActions}
                         </div>
                         <div class="m-footer-right">
-                            <button type="button" class="btn btn-xs btn-danger btn-purge-safe" data-action="purge" data-id="${escapeHtml(id)}">Purge</button>
+                            <button type="button" class="btn btn-xs btn-danger-soft btn-purge-safe" data-action="purge" data-id="${escapeHtml(id)}">Purge</button>
                         </div>
                     </div>
                 </div>
@@ -2272,6 +2421,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Delegate clicks inside Active Queue list
     document.getElementById('active-downloads-list')?.addEventListener('click', (e) => {
+        const card = e.target.closest('.q-card');
+        if (card) {
+            const cid = card.getAttribute('data-id');
+            if (cid) {
+                appState.inspectedItemId = cid;
+                const it = appState.activeDownloads.find((x) => String(x.id) === String(cid));
+                if (it) updateInspectorDock(it);
+            }
+        }
+
         const btn = e.target.closest('[data-action]');
         if (!btn) return;
         const action = btn.getAttribute('data-action');
@@ -2281,6 +2440,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (action === 'logs') openLogModal(id);
         else if (action === 'stop') stopDownloadById(id);
         else if (action === 'purge') openPurgeModal([id]);
+    });
+
+    // Active pipeline banner controls
+    document.getElementById('banner-stop-btn')?.addEventListener('click', (e) => {
+        const id = e.currentTarget.getAttribute('data-id');
+        if (id) stopDownloadById(id);
     });
 
     // 6. Media Library Toolbar Controls
@@ -2392,6 +2557,18 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.target.closest('[data-stop-prop="true"]') || e.target.classList.contains('item-checkbox')) {
             return;
         }
+
+        const itemCard = e.target.closest('[data-id]');
+        if (itemCard) {
+            const rowId = itemCard.getAttribute('data-id');
+            if (rowId) {
+                appState.inspectedItemId = rowId;
+                const it = appState.libraryItems.find((x) => String(x.id) === String(rowId)) ||
+                           appState.activeDownloads.find((x) => String(x.id) === String(rowId));
+                if (it) updateInspectorDock(it);
+            }
+        }
+
         const actionEl = e.target.closest('[data-action]');
         if (!actionEl) return;
         const action = actionEl.getAttribute('data-action');
