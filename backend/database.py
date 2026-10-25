@@ -628,9 +628,11 @@ def update_user_credentials(new_username: str, new_password: str) -> dict:
     """
     Updates the admin username and password with a new random 16-byte salt,
     clears the must_change_password flag, and rotates session_secret to
-    invalidate any other active sessions.
+    invalidate any other active sessions. Enforces minimum 8-character password length.
     """
     clean_user = new_username.strip()
+    if not new_password or len(new_password) < 8:
+        raise ValueError("New password must be at least 8 characters long")
     with db_lock:
         _invalidate_auth_cache()
         conn = get_db_connection()

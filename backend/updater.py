@@ -225,11 +225,23 @@ def get_ffmpeg_friendly_version(refresh: bool = False) -> str:
     return format_ffmpeg_version(raw)
 
 
+def are_runtime_updates_allowed() -> bool:
+    """
+    Returns True if in-app engine updates are permitted.
+    Can be explicitly disabled via DISABLE_RUNTIME_UPDATES=1 or gated via REQUIRE_OPT_IN_UPDATES=1 (F-09).
+    """
+    if os.environ.get("DISABLE_RUNTIME_UPDATES", "").lower() in ("1", "true", "yes"):
+        return False
+    if os.environ.get("REQUIRE_OPT_IN_UPDATES", "").lower() in ("1", "true", "yes"):
+        return os.environ.get("ENABLE_COMPONENT_UPDATES", "").lower() in ("1", "true", "yes")
+    return True
+
+
 def update_yt_dlp():
     log_output = []
     success = False
-    if os.environ.get("DISABLE_RUNTIME_UPDATES", "").lower() in ("1", "true", "yes"):
-        msg = "Runtime updates are disabled by administrator configuration."
+    if not are_runtime_updates_allowed():
+        msg = "Runtime updates are disabled or not explicitly enabled by administrator configuration."
         append_update_log(f"[yt-dlp] {msg}")
         return {
             "success": False,
@@ -249,6 +261,10 @@ def update_yt_dlp():
     try:
         pkg_dir = get_yt_dlp_pkg_dir()
         os.makedirs(pkg_dir, mode=0o700, exist_ok=True)
+        try:
+            os.chmod(pkg_dir, 0o700)
+        except OSError:
+            pass
 
         try:
             msg = "Starting isolated yt-dlp package update via pip..."
@@ -334,8 +350,8 @@ def update_ffmpeg():
     log_output = []
     success = False
 
-    if os.environ.get("DISABLE_RUNTIME_UPDATES", "").lower() in ("1", "true", "yes"):
-        msg = "Runtime updates are disabled by administrator configuration."
+    if not are_runtime_updates_allowed():
+        msg = "Runtime updates are disabled or not explicitly enabled by administrator configuration."
         append_update_log(f"[ffmpeg] {msg}")
         return {
             "success": False,

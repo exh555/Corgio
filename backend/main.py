@@ -26,7 +26,7 @@ from backend import privacy
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9_.-]{2,32}$")
 
 MAX_LOGIN_ATTEMPTS = 5
@@ -289,8 +289,14 @@ def _is_allowed_host(host_header: str) -> bool:
 
 
 def apply_logging_settings(enable_access_logs: bool):
+    """Dynamically enables or suppresses Uvicorn HTTP access logging (F-14)."""
     logger = logging.getLogger("uvicorn.access")
     logger.disabled = not enable_access_logs
+    logger.propagate = False
+    if enable_access_logs:
+        logger.setLevel(logging.INFO)
+    else:
+        logger.setLevel(logging.CRITICAL)
 
 
 def _model_to_dict(model_obj: BaseModel) -> dict:

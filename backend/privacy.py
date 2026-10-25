@@ -68,7 +68,10 @@ SENSITIVE_KEY_PREFIXES = ("x-amz-", "x-goog-", "x-oss-", "x-ms-")
 SENSITIVE_KEY_SUBSTRINGS = ("token", "secret", "passw", "signature", "sig", "hash", "hmac")
 
 _URL_IN_TEXT_RE = re.compile(r"https?://[^\s\"'<>]+", re.IGNORECASE)
-_PATH_TOKEN_RE = re.compile(r"/(hdnts|hdnea|hdntl|token|sig|hmac)=[^/]+/", re.IGNORECASE)
+_PATH_TOKEN_RE = re.compile(
+    r"/(hdnts|hdnea|hdntl|token|sig|hmac)=.+?/(?=[^/]+\.[a-zA-Z0-9]+(?:[?#]|$)|$)",
+    re.IGNORECASE,
+)
 _BEARER_RE = re.compile(r"(Authorization:\s*Bearer\s+)[^\s\r\n]+", re.IGNORECASE)
 _COOKIE_HEADER_RE = re.compile(r"((?:Set-)?Cookie:\s*)[^\r\n]+", re.IGNORECASE)
 _SID_COOKIE_RE = re.compile(r"((?:SID|HSID|SSID|APISID|SAPISID|LOGIN_INFO)=)[^;\s\r\n]+", re.IGNORECASE)

@@ -76,13 +76,16 @@ All bugs, features, and enhancements MUST strictly adhere to this end-to-end lif
 4. **Local Verification & Validation**:
    - Validate Python syntax:
      ```bash
-     python3 -m py_compile backend/*.py
+     python3 -m py_compile backend/*.py tests/*.py
+     ```
+   - Run automated security & regression test suite:
+     ```bash
+     python3 tests/test_corgio_security.py
      ```
    - Validate JavaScript syntax and types:
      ```bash
      /opt/homebrew/bin/deno check frontend/app.js
      ```
-   - Run relevant unit/regression tests.
 5. **Post Technical Resolution Details**:
    - Post an in-depth resolution comment directly to the GitHub issue explaining the root cause and implementation details:
      ```bash
@@ -127,9 +130,14 @@ When adding a new column to the `downloads` table:
 - **Self-Healing**: When `GET /api/downloads/{id}` or File Info is requested, if an existing file on disk lacks codecs or bitrate, dynamically probe the file with `ffprobe` and persist the healed data into SQLite.
 
 ### Console Log Retention & Secure Purge
-- **Routine Download Completion**: Do NOT discard or auto-purge console logs when a download finishes normally; persist the execution log in the `download_log` column in SQLite so the user can inspect it in the File Info modal.
+- **Routine Download Completion**: When `persist_download_logs` is enabled (default), persist execution logs in `download_log` in SQLite so users can inspect them in File Info. If disabled, do not persist console logs to SQLite.
 - **Explicit Item Purge**: When the user explicitly purges or deletes an item (`DELETE /api/downloads/{id}`), all logs (in-memory `logs_queue`, `download_log` in SQLite, and `activity_logs`) MUST be permanently and securely wiped (`PRAGMA secure_delete = ON` overwrites freed database pages with binary zeros, followed by WAL checkpoint truncation).
 - Ensure `/api/logs/{download_id}` falls back to the database record if the in-memory queue has been cleared.
+
+### Password Security & Bootstrap Credentials
+- **Password Length**: Passwords must be at least 8 characters long, enforced across backend models, database update methods, and frontend forms.
+- **Bootstrap Credentials**: On fresh installations, a cryptographically secure random password is saved to `/config/bootstrap_credentials.txt` (mode `0600`). It is removed automatically once the admin sets a permanent custom password.
+- **Password Reset Sentinel**: `RESET_PASSWORD=true` is a one-shot operation guarded by `/config/.password_reset_done`.
 
 ### Terminal & Sandbox Rules
 - Commands run in standard sandbox mode by default.
