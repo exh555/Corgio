@@ -468,6 +468,10 @@ def _safe_update_db(download_id: str, **kwargs):
     with state_lock:
         if download_id in purged_downloads:
             return
+        if kwargs.get("status") in ("completed", "failed", "stopped") and "download_log" not in kwargs:
+            current_logs = list(logs_queue.get(download_id, []))
+            if current_logs:
+                kwargs["download_log"] = "\n".join(current_logs)
         database.update_download(download_id, **kwargs)
 
 
@@ -781,14 +785,35 @@ def get_video_metadata(video_path):
         width = video_stream.get("width")
         height = video_stream.get("height")
 
-        fps_eval = video_stream.get("r_frame_rate", "")
         fps = None
-        if fps_eval and "/" in fps_eval:
+        for key in ("r_frame_rate", "avg_frame_rate"):
+            fps_eval = video_stream.get(key, "")
+            if fps_eval and "/" in fps_eval:
+                try:
+                    num, den = map(int, fps_eval.split("/"))
+                    if den and num > 0:
+                        fps = round(num / den, 2)
+                        break
+                except (ValueError, ZeroDivisionError):
+                    pass
+
+        bitrate = None
+        raw_bitrate = format_info.get("bit_rate") or video_stream.get("bit_rate")
+        if raw_bitrate:
             try:
-                num, den = map(int, fps_eval.split("/"))
-                fps = round(num / den, 2) if den else None
-            except ValueError:
-                pass
+                bitrate = int(raw_bitrate)
+            except (ValueError, TypeError):
+                bitrate = None
+        if not bitrate:
+            try:
+                dur = float(format_info.get("duration") or 0)
+                if dur > 0 and os.path.exists(video_path):
+                    bitrate = round((os.path.getsize(video_path) * 8) / dur)
+            except Exception:
+                bitrate = None
+
+        raw_duration = format_info.get("duration")
+        duration = int(float(raw_duration)) if raw_duration else 0
 
         return {
             "uploader": "Local File",
@@ -798,6 +823,8 @@ def get_video_metadata(video_path):
             "fps": fps,
             "vcodec": video_stream.get("codec_name"),
             "acodec": audio_stream.get("codec_name"),
+            "bitrate": bitrate,
+            "duration": duration,
             "description": format_info.get("tags", {}).get("comment", "Local imported media file."),
         }
     except Exception:
@@ -1259,6 +1286,31 @@ def run_yt_dlp_download(download_id, url, settings):
                 if duration == 0 and not _is_cancelled_or_purged(download_id):
                     duration = get_video_duration(final_filepath)
 
+                # Post-download ffprobe inspection: enrich missing codecs, fps, and bitrate
+                probed_meta = get_video_metadata(final_filepath)
+                try:
+                    current_meta = json.loads(metadata_json) if metadata_json and metadata_json != "{}" else {}
+                except Exception:
+                    current_meta = {}
+
+                if probed_meta:
+                    if duration == 0 and probed_meta.get("duration"):
+                        duration = probed_meta["duration"]
+                    if probed_meta.get("vcodec") and (not current_meta.get("vcodec") or current_meta.get("vcodec") in ("none", "N/A")):
+                        current_meta["vcodec"] = probed_meta["vcodec"]
+                    if probed_meta.get("acodec") and (not current_meta.get("acodec") or current_meta.get("acodec") in ("none", "N/A")):
+                        current_meta["acodec"] = probed_meta["acodec"]
+                    if probed_meta.get("fps") and not current_meta.get("fps"):
+                        current_meta["fps"] = probed_meta["fps"]
+                    if probed_meta.get("width") and not current_meta.get("width"):
+                        current_meta["width"] = probed_meta["width"]
+                    if probed_meta.get("height") and not current_meta.get("height"):
+                        current_meta["height"] = probed_meta["height"]
+                    if probed_meta.get("bitrate"):
+                        current_meta["bitrate"] = probed_meta["bitrate"]
+
+                metadata_json = json.dumps(current_meta)
+
                 if _is_cancelled_or_purged(download_id):
                     return
 
@@ -1278,6 +1330,11 @@ def run_yt_dlp_download(download_id, url, settings):
 
                 final_thumbnail = local_thumb_rel_url if thumb_success else "/static/fallback-icon.svg"
 
+                _append_log(download_id, f"[system] Download completed successfully. Saved to: {filename}")
+                with state_lock:
+                    current_logs = list(logs_queue.get(download_id, []))
+                saved_log = "\n".join(current_logs) if current_logs else None
+
                 _safe_update_db(
                     download_id,
                     filename=filename,
@@ -1290,9 +1347,10 @@ def run_yt_dlp_download(download_id, url, settings):
                     duration=duration,
                     thumbnail_url=final_thumbnail,
                     format=file_ext,
+                    metadata_json=metadata_json,
+                    download_log=saved_log,
                     error_log=None,
                 )
-                _append_log(download_id, f"[system] Download completed successfully. Saved to: {filename}")
                 _safe_activity_log(download_id, "DOWNLOAD_COMPLETE", f"Completed download: {filename}")
                 download_succeeded = True
 
@@ -1329,6 +1387,11 @@ def run_yt_dlp_download(download_id, url, settings):
                         raw_extra_title = os.path.splitext(extra_filename)[0]
                         extra_title = re.sub(r"\s*\[[a-zA-Z0-9_-]{6,}\]$", "", raw_extra_title)
 
+                        extra_probed = get_video_metadata(extra_final_path)
+                        extra_meta_json = json.dumps(extra_probed) if extra_probed else "{}"
+                        if extra_duration == 0 and extra_probed.get("duration"):
+                            extra_duration = extra_probed["duration"]
+
                         database.add_download(extra_id, safe_url, title=extra_title, status="completed")
                         database.update_download(
                             extra_id,
@@ -1341,6 +1404,8 @@ def run_yt_dlp_download(download_id, url, settings):
                             progress=100.0,
                             speed="0 KB/s",
                             eta="00:00",
+                            metadata_json=extra_meta_json,
+                            download_log=f"[system] Downloaded as part of playlist item from {safe_url}\n[system] File: {extra_filename}",
                         )
                         _append_log(download_id, f"[system] Playlist item completed: {extra_filename}")
                         _safe_activity_log(extra_id, "DOWNLOAD_COMPLETE", f"Completed playlist item: {extra_filename}")

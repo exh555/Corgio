@@ -1790,6 +1790,21 @@ code, pre {
     overflow-y: auto;
 }
 
+.meta-log-pre {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-sub);
+    background-color: var(--bg-main);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 8px 10px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 220px;
+    overflow-y: auto;
+    margin-top: 4px;
+}
+
 /* Purge Modal Elements */
 .modal-desc {
     font-size: 13px;

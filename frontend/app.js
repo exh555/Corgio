@@ -78,6 +78,18 @@ function formatDuration(seconds) {
     return `${pad(mins)}:${pad(rem)}`;
 }
 
+function formatBitrate(bps) {
+    const num = Number(bps);
+    if (!num || num <= 0 || isNaN(num)) return 'N/A';
+    if (num >= 1000000) {
+        return `${(num / 1000000).toFixed(2)} Mbps`;
+    }
+    if (num >= 1000) {
+        return `${Math.round(num / 1000)} kbps`;
+    }
+    return `${Math.round(num)} bps`;
+}
+
 function formatShortDate(isoStr) {
     if (!isoStr) return '--';
     const normalized = (isoStr.endsWith('Z') || isoStr.includes('+')) ? isoStr : isoStr + 'Z';
@@ -1490,96 +1502,170 @@ function closeLogModal() {
 }
 
 function openMetadataModal(id) {
-    const item = appState.libraryItems.find((i) => String(i.id) === String(id));
+    let item =
+        appState.libraryItems.find((i) => String(i.id) === String(id)) ||
+        appState.activeDownloads.find((i) => String(i.id) === String(id));
     if (!item) return;
 
-    let meta = {};
-    if (item.metadata_json) {
-        try {
-            meta = JSON.parse(item.metadata_json) || {};
-        } catch (e) {
-            meta = {};
+    function renderModal(curItem) {
+        let meta = {};
+        if (curItem.metadata_json) {
+            try {
+                meta = JSON.parse(curItem.metadata_json) || {};
+            } catch (e) {
+                meta = {};
+            }
+        }
+
+        const resStr = meta.width && meta.height ? `${meta.width}×${meta.height}` : 'N/A';
+        const fpsStr = meta.fps ? `${meta.fps} fps` : 'N/A';
+        const vcodec = (meta.vcodec && meta.vcodec !== 'none') ? meta.vcodec : 'N/A';
+        const acodec = (meta.acodec && meta.acodec !== 'none') ? meta.acodec : 'N/A';
+        const bitrateStr = formatBitrate(meta.bitrate);
+
+        const body = document.getElementById('metadata-body');
+        const modal = document.getElementById('metadata-modal');
+        if (!body || !modal) return;
+
+        body.innerHTML = `
+            <div class="meta-grid">
+                <div class="meta-item meta-item-full">
+                    <div class="meta-label">Title</div>
+                    <div class="meta-value">${escapeHtml(curItem.title || 'Unknown')}</div>
+                </div>
+                <div class="meta-item meta-item-full">
+                    <div class="meta-label">Source URL</div>
+                    <div class="meta-value" style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+                        <span>${escapeHtml(curItem.url || 'N/A')}</span>
+                        <button type="button" class="btn btn-xs" id="btn-copy-meta-url" data-url="${escapeHtml(curItem.url || '')}">Copy URL</button>
+                    </div>
+                </div>
+                <div class="meta-item">
+                    <div class="meta-label">Domain</div>
+                    <div class="meta-value">${escapeHtml(curItem.domain || 'unknown')}</div>
+                </div>
+                <div class="meta-item">
+                    <div class="meta-label">Container &amp; Status</div>
+                    <div class="meta-value">${escapeHtml((curItem.format || 'N/A').toUpperCase())} (${escapeHtml(curItem.status)})</div>
+                </div>
+                <div class="meta-item">
+                    <div class="meta-label">File Size</div>
+                    <div class="meta-value">${escapeHtml(formatBytes(curItem.file_size))}</div>
+                </div>
+                <div class="meta-item">
+                    <div class="meta-label">Duration</div>
+                    <div class="meta-value">${escapeHtml(formatDuration(curItem.duration))}</div>
+                </div>
+                <div class="meta-item">
+                    <div class="meta-label">Resolution &amp; Frame Rate</div>
+                    <div class="meta-value">${escapeHtml(resStr)} • ${escapeHtml(fpsStr)}</div>
+                </div>
+                <div class="meta-item">
+                    <div class="meta-label">Video / Audio Codecs</div>
+                    <div class="meta-value">${escapeHtml(vcodec)} / ${escapeHtml(acodec)}</div>
+                </div>
+                <div class="meta-item">
+                    <div class="meta-label">Overall Bitrate</div>
+                    <div class="meta-value">${escapeHtml(bitrateStr)}</div>
+                </div>
+                <div class="meta-item">
+                    <div class="meta-label">Uploader</div>
+                    <div class="meta-value">${escapeHtml(meta.uploader || 'Unknown')}</div>
+                </div>
+                <div class="meta-item">
+                    <div class="meta-label">Upload Date / Play Count</div>
+                    <div class="meta-value">${escapeHtml(meta.upload_date || 'N/A')} • ${escapeHtml(String(curItem.play_count || 0))} plays</div>
+                </div>
+                <div class="meta-item meta-item-full">
+                    <div class="meta-label">Local File Path</div>
+                    <div class="meta-value">${escapeHtml(curItem.filepath || 'N/A')}</div>
+                </div>
+                ${meta.description ? `
+                    <div class="meta-item meta-item-full">
+                        <div class="meta-label">Description</div>
+                        <div class="meta-desc-pre">${escapeHtml(meta.description)}</div>
+                    </div>
+                ` : ''}
+                <div class="meta-item meta-item-full">
+                    <div class="meta-label" style="display:flex; justify-content:space-between; align-items:center;">
+                        <span>Downloader &amp; Encoder Console Log</span>
+                        <button type="button" class="btn btn-xs" id="btn-copy-meta-log" style="display:none;">Copy Log</button>
+                    </div>
+                    <pre id="meta-log-container" class="meta-log-pre">Loading console logs...</pre>
+                </div>
+            </div>
+        `;
+
+        const copyBtn = document.getElementById('btn-copy-meta-url');
+        if (copyBtn) {
+            copyBtn.addEventListener('click', () => {
+                const u = copyBtn.getAttribute('data-url') || '';
+                navigator.clipboard.writeText(u).then(() => {
+                    showToast('Source URL copied to clipboard.', 'info');
+                }).catch(() => {});
+            });
         }
     }
 
-    const resStr = meta.width && meta.height ? `${meta.width}×${meta.height}` : 'N/A';
-    const fpsStr = meta.fps ? `${meta.fps} fps` : 'N/A';
-    const vcodec = (meta.vcodec && meta.vcodec !== 'none') ? meta.vcodec : 'N/A';
-    const acodec = (meta.acodec && meta.acodec !== 'none') ? meta.acodec : 'N/A';
-
-    const body = document.getElementById('metadata-body');
+    renderModal(item);
     const modal = document.getElementById('metadata-modal');
-    if (!body || !modal) return;
+    if (modal) modal.classList.remove('hidden');
 
-    body.innerHTML = `
-        <div class="meta-grid">
-            <div class="meta-item meta-item-full">
-                <div class="meta-label">Title</div>
-                <div class="meta-value">${escapeHtml(item.title || 'Unknown')}</div>
-            </div>
-            <div class="meta-item meta-item-full">
-                <div class="meta-label">Source URL</div>
-                <div class="meta-value" style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
-                    <span>${escapeHtml(item.url || 'N/A')}</span>
-                    <button type="button" class="btn btn-xs" id="btn-copy-meta-url" data-url="${escapeHtml(item.url || '')}">Copy URL</button>
-                </div>
-            </div>
-            <div class="meta-item">
-                <div class="meta-label">Domain</div>
-                <div class="meta-value">${escapeHtml(item.domain || 'unknown')}</div>
-            </div>
-            <div class="meta-item">
-                <div class="meta-label">Container &amp; Status</div>
-                <div class="meta-value">${escapeHtml((item.format || 'N/A').toUpperCase())} (${escapeHtml(item.status)})</div>
-            </div>
-            <div class="meta-item">
-                <div class="meta-label">File Size</div>
-                <div class="meta-value">${escapeHtml(formatBytes(item.file_size))}</div>
-            </div>
-            <div class="meta-item">
-                <div class="meta-label">Duration</div>
-                <div class="meta-value">${escapeHtml(formatDuration(item.duration))}</div>
-            </div>
-            <div class="meta-item">
-                <div class="meta-label">Resolution &amp; Frame Rate</div>
-                <div class="meta-value">${escapeHtml(resStr)} • ${escapeHtml(fpsStr)}</div>
-            </div>
-            <div class="meta-item">
-                <div class="meta-label">Video / Audio Codecs</div>
-                <div class="meta-value">${escapeHtml(vcodec)} / ${escapeHtml(acodec)}</div>
-            </div>
-            <div class="meta-item">
-                <div class="meta-label">Uploader</div>
-                <div class="meta-value">${escapeHtml(meta.uploader || 'Unknown')}</div>
-            </div>
-            <div class="meta-item">
-                <div class="meta-label">Upload Date / Play Count</div>
-                <div class="meta-value">${escapeHtml(meta.upload_date || 'N/A')} • ${escapeHtml(String(item.play_count || 0))} plays</div>
-            </div>
-            <div class="meta-item meta-item-full">
-                <div class="meta-label">Local File Path</div>
-                <div class="meta-value">${escapeHtml(item.filepath || 'N/A')}</div>
-            </div>
-            ${meta.description ? `
-                <div class="meta-item meta-item-full">
-                    <div class="meta-label">Description</div>
-                    <div class="meta-desc-pre">${escapeHtml(meta.description)}</div>
-                </div>
-            ` : ''}
-        </div>
-    `;
-
-    const copyBtn = document.getElementById('btn-copy-meta-url');
-    if (copyBtn) {
-        copyBtn.addEventListener('click', () => {
-            const u = copyBtn.getAttribute('data-url') || '';
-            navigator.clipboard.writeText(u).then(() => {
-                showToast('Source URL copied to clipboard.', 'info');
-            }).catch(() => {});
+    // Fetch console logs
+    fetch(`/api/logs/${id}`)
+        .then((r) => r.json())
+        .then((logs) => {
+            const logBox = document.getElementById('meta-log-container');
+            const copyLogBtn = document.getElementById('btn-copy-meta-log');
+            if (!logBox) return;
+            if (Array.isArray(logs) && logs.length > 0) {
+                const fullText = logs.join('\n');
+                logBox.textContent = fullText;
+                if (copyLogBtn) {
+                    copyLogBtn.style.display = 'inline-block';
+                    copyLogBtn.onclick = () => {
+                        navigator.clipboard.writeText(fullText).then(() => {
+                            showToast('Download log copied to clipboard.', 'info');
+                        }).catch(() => {});
+                    };
+                }
+            } else {
+                logBox.textContent = 'No console logs available for this media item.';
+            }
+        })
+        .catch(() => {
+            const logBox = document.getElementById('meta-log-container');
+            if (logBox) logBox.textContent = 'Unable to load console logs.';
         });
-    }
 
-    modal.classList.remove('hidden');
+    // Check for self-healing metadata updates (e.g. if codecs or bitrate were N/A)
+    fetch(`/api/downloads/${id}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((updated) => {
+            if (updated && updated.metadata_json && updated.metadata_json !== item.metadata_json) {
+                item.metadata_json = updated.metadata_json;
+                const libIdx = appState.libraryItems.findIndex((i) => String(i.id) === String(id));
+                if (libIdx !== -1) {
+                    appState.libraryItems[libIdx].metadata_json = updated.metadata_json;
+                }
+                const logBox = document.getElementById('meta-log-container');
+                const prevLogText = logBox ? logBox.textContent : null;
+                renderModal(item);
+                if (prevLogText && document.getElementById('meta-log-container')) {
+                    document.getElementById('meta-log-container').textContent = prevLogText;
+                    const copyLogBtn = document.getElementById('btn-copy-meta-log');
+                    if (copyLogBtn && prevLogText !== 'No console logs available for this media item.' && prevLogText !== 'Loading console logs...') {
+                        copyLogBtn.style.display = 'inline-block';
+                        copyLogBtn.onclick = () => {
+                            navigator.clipboard.writeText(prevLogText).then(() => {
+                                showToast('Download log copied to clipboard.', 'info');
+                            }).catch(() => {});
+                        };
+                    }
+                }
+            }
+        })
+        .catch(() => {});
 }
 
 function openPurgeModal(ids) {

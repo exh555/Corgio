@@ -24,7 +24,7 @@ from backend import privacy
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
-APP_VERSION = "1.0.5"
+APP_VERSION = "1.0.6"
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9_.-]{2,32}$")
 
 MAX_LOGIN_ATTEMPTS = 5
@@ -703,6 +703,57 @@ def list_downloads():
     return database.get_all_downloads()
 
 
+@app.get("/api/downloads/{download_id}")
+def get_single_download(download_id: str):
+    """Gets details for a single download record, self-healing missing metadata via ffprobe if needed."""
+    info = database.get_download(download_id)
+    if not info:
+        raise HTTPException(status_code=404, detail="Download record not found")
+
+    filepath = info.get("filepath")
+    meta = {}
+    if info.get("metadata_json"):
+        try:
+            meta = json.loads(info["metadata_json"]) or {}
+        except Exception:
+            meta = {}
+
+    needs_probe = (
+        not meta.get("vcodec")
+        or meta.get("vcodec") in ("none", "N/A")
+        or not meta.get("fps")
+        or not meta.get("bitrate")
+    )
+    if filepath and os.path.exists(filepath) and needs_probe:
+        probed = downloader.get_video_metadata(filepath)
+        if probed:
+            changed = False
+            if probed.get("vcodec") and (not meta.get("vcodec") or meta.get("vcodec") in ("none", "N/A")):
+                meta["vcodec"] = probed["vcodec"]
+                changed = True
+            if probed.get("acodec") and (not meta.get("acodec") or meta.get("acodec") in ("none", "N/A")):
+                meta["acodec"] = probed["acodec"]
+                changed = True
+            if probed.get("fps") and not meta.get("fps"):
+                meta["fps"] = probed["fps"]
+                changed = True
+            if probed.get("width") and not meta.get("width"):
+                meta["width"] = probed["width"]
+                changed = True
+            if probed.get("height") and not meta.get("height"):
+                meta["height"] = probed["height"]
+                changed = True
+            if probed.get("bitrate") and not meta.get("bitrate"):
+                meta["bitrate"] = probed["bitrate"]
+                changed = True
+            if changed:
+                meta_json = json.dumps(meta)
+                database.update_download(download_id, metadata_json=meta_json)
+                info["metadata_json"] = meta_json
+
+    return info
+
+
 @app.get("/api/active")
 def list_active_downloads():
     """Lists current active downloads and progress"""
@@ -849,9 +900,11 @@ def get_download_logs(download_id: str):
     if not logs:
         info = database.get_download(download_id)
         if info:
+            if info.get("download_log"):
+                return [line for line in info["download_log"].splitlines()]
             if info.get("status") == "completed":
                 return [
-                    "[system] Raw downloader and encoder logs were automatically purged upon completion for privacy."
+                    "[system] No saved console logs found for this completed download."
                 ]
             if info.get("error_log"):
                 return [f"[system] Download status ({info.get('status')}): {info['error_log']}"]

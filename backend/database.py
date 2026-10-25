@@ -57,6 +57,7 @@ ALLOWED_DOWNLOAD_COLUMNS = {
     "domain",
     "metadata_json",
     "download_options",
+    "download_log",
 }
 
 
@@ -231,7 +232,8 @@ def init_db():
                 play_count INTEGER DEFAULT 0,
                 domain TEXT,
                 metadata_json TEXT,
-                download_options TEXT
+                download_options TEXT,
+                download_log TEXT
             )
         """)
 
@@ -240,6 +242,7 @@ def init_db():
             "ALTER TABLE downloads ADD COLUMN domain TEXT",
             "ALTER TABLE downloads ADD COLUMN metadata_json TEXT",
             "ALTER TABLE downloads ADD COLUMN download_options TEXT",
+            "ALTER TABLE downloads ADD COLUMN download_log TEXT",
         ):
             try:
                 cursor.execute(col_stmt)
