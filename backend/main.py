@@ -24,7 +24,7 @@ from backend import privacy
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.0.2"
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9_.-]{2,32}$")
 
 MAX_LOGIN_ATTEMPTS = 5
@@ -601,6 +601,7 @@ def get_status():
         "yt_dlp_version": updater.get_yt_dlp_version(),
         "ffmpeg_version": updater.get_ffmpeg_version(),
         "ffmpeg_friendly_version": updater.get_ffmpeg_friendly_version(),
+        "js_runtime": downloader.get_js_runtime_info(),
         "downloads_dir": display_dir,
         "disk_space": {
             "total": total,

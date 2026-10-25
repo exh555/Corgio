@@ -94,6 +94,8 @@ ALLOWED_VALUE_FLAGS = {
     "--audio-quality": re.compile(r"^(?:[0-9]|10|[0-9]{2,3}[Kk])$"),
     "--remux-video": re.compile(r"^(?:mp4|mkv|webm|mov|avi)$"),
     "--recode-video": re.compile(r"^(?:mp4|mkv|webm|mov|avi)$"),
+    "--extractor-args": re.compile(r"^[a-zA-Z0-9_,:;=-]{1,128}$"),
+    "--js-runtimes": re.compile(r"^[a-zA-Z0-9_:./-]{1,128}$"),
     "--limit-rate": SPEED_LIMIT_RE,
     "-r": SPEED_LIMIT_RE,
 }
@@ -232,6 +234,53 @@ def is_explicit_playlist_url(raw_url: str) -> bool:
         return False
     except Exception:
         return False
+
+
+def is_youtube_url(raw_url: str) -> bool:
+    """Detects whether a URL belongs to YouTube or youtu.be."""
+    try:
+        parsed = urlparse(raw_url)
+        netloc = (parsed.netloc or "").lower()
+        return any(h in netloc for h in ("youtube.com", "youtu.be"))
+    except Exception:
+        return False
+
+
+def get_js_runtime_info() -> str:
+    """Returns detected JavaScript runtime name and version for status inspection."""
+    for name in ("node", "nodejs", "deno", "bun"):
+        path = shutil.which(name)
+        if path:
+            try:
+                out = subprocess.check_output([path, "--version"], text=True, timeout=2).strip()
+                return f"{name} {out}"
+            except Exception:
+                return f"{name} ({path})"
+    return "None detected"
+
+
+def get_js_runtime_args(url: str = "") -> list:
+    """
+    Detects if a supported JavaScript runtime (node, deno, bun) is available
+    to enable yt-dlp's EJS solver for YouTube signature deciphering and n-challenges.
+    If no JS runtime is found on the host and the target is YouTube, supplies alternative
+    player client args as a graceful fallback to prevent unhandled visionos errors.
+    """
+    node_bin = shutil.which("node") or shutil.which("nodejs")
+    if node_bin:
+        return ["--js-runtimes", f"node:{node_bin}"]
+    deno_bin = shutil.which("deno")
+    if deno_bin:
+        return ["--js-runtimes", f"deno:{deno_bin}"]
+    bun_bin = shutil.which("bun")
+    if bun_bin:
+        return ["--js-runtimes", f"bun:{bun_bin}"]
+
+    # Graceful fallback when running in environments without a JS engine
+    if url and is_youtube_url(url):
+        return ["--extractor-args", "youtube:player_client=android,web"]
+
+    return []
 
 
 def parse_and_validate_custom_args(custom_args_str: str) -> list:
@@ -775,6 +824,7 @@ def run_yt_dlp_download(download_id, url, settings):
         ]
         if not is_explicit_playlist:
             info_cmd.append("--no-playlist")
+        info_cmd.extend(get_js_runtime_args(url))
         info_cmd.extend(["--", url])
         try:
             info_proc = subprocess.Popen(
@@ -939,6 +989,15 @@ def run_yt_dlp_download(download_id, url, settings):
                 _safe_update_db(download_id, status="failed", error_log=str(e))
                 _append_log(download_id, f"[system] Error: {str(e)}")
                 return
+
+        # Add JavaScript challenge runtime or fallback extractor args unless overridden by user
+        if not any(a == "--js-runtimes" for a in validated_args) and not any(a == "--extractor-args" for a in validated_args):
+            js_args = get_js_runtime_args(url)
+            if js_args:
+                cmd.extend(js_args)
+            runtime_info = get_js_runtime_info()
+            if "None" not in runtime_info:
+                _append_log(download_id, f"[system] JavaScript challenge solver active: {runtime_info}")
 
         # Strip container metadata by default unless user explicitly passed --embed-metadata or --add-metadata (F2)
         if not any(a in ("--embed-metadata", "--add-metadata") for a in validated_args):

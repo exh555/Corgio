@@ -506,6 +506,12 @@ async function fetchStatus() {
             sysFf.title = ffRaw;
         }
 
+        const sysJs = document.getElementById('sys-js-runtime');
+        if (sysJs && data.js_runtime) {
+            sysJs.textContent = data.js_runtime;
+            sysJs.title = data.js_runtime;
+        }
+
         const sysDir = document.getElementById('sys-downloads-dir');
         if (sysDir && data.downloads_dir) {
             sysDir.textContent = data.downloads_dir;

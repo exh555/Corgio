@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     gosu \
     ca-certificates \
+    nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # Create isolated virtual environment so non-root appuser can update yt-dlp cleanly
