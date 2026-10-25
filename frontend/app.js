@@ -380,7 +380,9 @@ async function persistSettingsToBackend(showSuccessToast = false) {
         default_subtitles: Boolean(document.getElementById('subs-input')?.checked),
         custom_args: document.getElementById('custom-args-input')?.value.trim() ?? appState.settings.custom_args,
         download_subfolder: document.getElementById('subfolder-input')?.value.trim() ?? appState.settings.download_subfolder,
-        enable_access_logs: Boolean(document.getElementById('setting-access-logs')?.checked)
+        enable_access_logs: Boolean(document.getElementById('setting-access-logs')?.checked),
+        persist_download_logs: Boolean(document.getElementById('setting-persist-logs')?.checked),
+        track_play_count: Boolean(document.getElementById('setting-track-plays')?.checked)
     };
 
     try {
@@ -452,6 +454,12 @@ function populateOptionsDrawerFromSettings() {
 
     const logsCheck = document.getElementById('setting-access-logs');
     if (logsCheck) logsCheck.checked = Boolean(s.enable_access_logs);
+
+    const persistLogsCheck = document.getElementById('setting-persist-logs');
+    if (persistLogsCheck) persistLogsCheck.checked = s.persist_download_logs !== false;
+
+    const trackPlaysCheck = document.getElementById('setting-track-plays');
+    if (trackPlaysCheck) trackPlaysCheck.checked = s.track_play_count !== false;
 
     const palSelect = document.getElementById('setting-palette');
     if (palSelect) palSelect.value = normalizePalette(s.palette);
@@ -2120,14 +2128,29 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    function unwrapRedirectUrl(rawUrl) {
+        if (!rawUrl) return '';
+        try {
+            const u = new URL(rawUrl);
+            if (u.hostname.endsWith('google.com') && u.pathname === '/url') {
+                const target = u.searchParams.get('q') || u.searchParams.get('url');
+                if (target && (target.startsWith('http://') || target.startsWith('https://'))) {
+                    return decodeURIComponent(target);
+                }
+            }
+        } catch (_) {}
+        return rawUrl;
+    }
+
     // Global Paste Anywhere handler
     document.addEventListener('paste', (e) => {
         if (!appState.auth.authenticated) return;
         const activeTag = document.activeElement?.tagName?.toLowerCase();
         if (['input', 'textarea', 'select'].includes(activeTag)) return;
 
-        const pasted = (e.clipboardData || window.clipboardData)?.getData('text')?.trim();
+        let pasted = (e.clipboardData || window.clipboardData)?.getData('text')?.trim();
         if (pasted && (pasted.startsWith('http://') || pasted.startsWith('https://'))) {
+            pasted = unwrapRedirectUrl(pasted);
             const urlInput = document.getElementById('url-input');
             if (urlInput) {
                 e.preventDefault();
@@ -2145,26 +2168,31 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function extractDroppedUrl(dt) {
         if (!dt) return '';
+        let extracted = '';
         // 1. Check HTML anchor href first if user dragged a linked thumbnail/card
         const htmlData = dt.getData('text/html') || '';
         if (htmlData) {
             const hrefMatch = htmlData.match(/<a[^>]+href=["'](https?:\/\/[^"'\s<>]+)["']/i);
-            if (hrefMatch && hrefMatch[1]) return hrefMatch[1].trim();
+            if (hrefMatch && hrefMatch[1]) extracted = hrefMatch[1].trim();
         }
         // 2. Check standard text/uri-list
-        const uriList = dt.getData('text/uri-list') || '';
-        if (uriList) {
-            const lines = uriList.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
-            const firstHttp = lines.find((l) => l.startsWith('http://') || l.startsWith('https://'));
-            if (firstHttp) return firstHttp;
+        if (!extracted) {
+            const uriList = dt.getData('text/uri-list') || '';
+            if (uriList) {
+                const lines = uriList.split(/\r?\n/).map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+                const firstHttp = lines.find((l) => l.startsWith('http://') || l.startsWith('https://'));
+                if (firstHttp) extracted = firstHttp;
+            }
         }
         // 3. Fallback to plain text
-        const plain = (dt.getData('text/plain') || '').trim();
-        if (plain) {
-            const urlMatch = plain.match(/https?:\/\/[^\s"'<>]+/i);
-            if (urlMatch && urlMatch[0]) return urlMatch[0].trim();
+        if (!extracted) {
+            const plain = (dt.getData('text/plain') || '').trim();
+            if (plain) {
+                const urlMatch = plain.match(/https?:\/\/[^\s"'<>]+/i);
+                if (urlMatch && urlMatch[0]) extracted = urlMatch[0].trim();
+            }
         }
-        return '';
+        return unwrapRedirectUrl(extracted);
     }
 
     function clearDragVisuals() {

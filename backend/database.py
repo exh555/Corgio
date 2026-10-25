@@ -330,6 +330,8 @@ def init_db():
             "custom_args": "",
             "download_subfolder": "",
             "enable_access_logs": "false",
+            "persist_download_logs": "true",
+            "track_play_count": "true",
         }
         for key, val in defaults.items():
             cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (key, val))

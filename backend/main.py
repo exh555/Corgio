@@ -8,6 +8,7 @@ import hashlib
 import json
 import logging
 import ipaddress
+import threading
 from urllib.parse import urlparse
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Query, Request, Response
@@ -25,7 +26,7 @@ from backend import privacy
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
-APP_VERSION = "1.0.7"
+APP_VERSION = "1.1.0"
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9_.-]{2,32}$")
 
 MAX_LOGIN_ATTEMPTS = 5
@@ -49,6 +50,8 @@ MIME_MAP = {
 
 MAX_SSE_STREAMS = 10
 _active_sse_streams = 0
+_sse_lock = threading.Lock()
+_TAILSCALE_NET = ipaddress.ip_network("100.64.0.0/10")
 
 DEFAULT_CSP = (
     "default-src 'self'; "
@@ -265,10 +268,19 @@ def _is_allowed_host(host_header: str) -> bool:
     if "." not in host_only or host_only.endswith((".local", ".lan", ".home", ".internal")):
         return True
 
-    # Allow direct private/loopback IP literals (e.g. 192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+    # Allow Tailscale MagicDNS domains (*.ts.net) (F-15)
+    if host_only.endswith(".ts.net"):
+        return True
+
+    # Allow direct private, loopback, link-local, or Tailscale CGNAT IP literals (F-15)
     try:
         ip_obj = ipaddress.ip_address(host_only)
-        if ip_obj.is_loopback or ip_obj.is_private or ip_obj.is_link_local:
+        if (
+            ip_obj.is_loopback
+            or ip_obj.is_private
+            or ip_obj.is_link_local
+            or (isinstance(ip_obj, ipaddress.IPv4Address) and ip_obj in _TAILSCALE_NET)
+        ):
             return True
     except ValueError:
         pass
@@ -426,6 +438,8 @@ class SettingsRequest(BaseModel):
     custom_args: Optional[str] = ""
     download_subfolder: Optional[str] = ""
     enable_access_logs: Optional[bool] = False
+    persist_download_logs: Optional[bool] = True
+    track_play_count: Optional[bool] = True
 
 
 class LoginRequest(BaseModel):
@@ -653,11 +667,31 @@ def get_cookies_info():
     return downloader.get_cookies_status()
 
 
+def _is_valid_netscape_cookie_content(raw_text: str) -> bool:
+    """Validates that cookie content follows the standard Netscape HTTP Cookie File specification."""
+    valid_data_lines = 0
+    has_cookie_header = False
+    for raw_line in raw_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if "netscape http cookie file" in line.lower():
+            has_cookie_header = True
+            continue
+        if line.startswith("#"):
+            continue
+        # Netscape cookie format: domain, flag, path, secure, expiration, name, value (7 tab-separated fields)
+        parts = line.split("\t")
+        if len(parts) >= 7:
+            valid_data_lines += 1
+    return valid_data_lines > 0 or (has_cookie_header and len(raw_text.splitlines()) > 1)
+
+
 @app.post("/api/cookies")
 async def upload_cookies_content(request: Request):
     """
     Safely saves Netscape-format cookies.txt text to the persistent configuration folder.
-    Restricted to 5MB max and verifies basic text format.
+    Restricted to 5MB max, verifies 7-column Netscape format, and writes with atomic 0600 permissions.
     """
     MAX_COOKIE_BYTES = 5 * 1024 * 1024  # 5 MB
     content = await request.body()
@@ -675,14 +709,20 @@ async def upload_cookies_content(request: Request):
     if not lines:
         raise HTTPException(status_code=400, detail="Cookie data has no valid lines")
 
+    if not _is_valid_netscape_cookie_content(text):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid cookie format: file must follow standard Netscape HTTP Cookie File format with tab-separated fields",
+        )
+
     dest_path = COOKIES_FILE_PATH
     os.makedirs(os.path.dirname(os.path.abspath(dest_path)), exist_ok=True)
 
     temp_dest = dest_path + f".tmp.{os.getpid()}"
     try:
-        with open(temp_dest, "w", encoding="utf-8") as f:
+        fd = os.open(temp_dest, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+        with open(fd, "w", encoding="utf-8") as f:
             f.write(text + "\n")
-        os.chmod(temp_dest, 0o600)
         os.replace(temp_dest, dest_path)
     except Exception as e:
         if os.path.exists(temp_dest):
@@ -853,9 +893,11 @@ def record_video_play(download_id: str):
     if not info:
         raise HTTPException(status_code=404, detail="Download record not found")
 
-    database.increment_play_count(download_id)
-    label = info.get("title") or info.get("filename") or download_id
-    database.add_activity_log("PLAY", f"Played media in browser player: {label}", download_id)
+    settings = database.get_settings()
+    if settings.get("track_play_count", True):
+        database.increment_play_count(download_id)
+        label = info.get("title") or info.get("filename") or download_id
+        database.add_activity_log("PLAY", f"Played media in browser player: {label}", download_id)
     return {"status": "success"}
 
 
@@ -907,14 +949,19 @@ def delete_video_download(download_id: str, delete_file: bool = Query(False)):
                     and curr_dir != download_dir_real
                     and os.path.commonpath([download_dir_real, curr_dir]) == download_dir_real
                 ):
-                    remaining = [
-                        f
-                        for f in os.listdir(curr_dir)
-                        if f not in (".DS_Store", ".thumbnails", ".work")
-                    ]
-                    if not remaining:
+                    entries = [f for f in os.listdir(curr_dir) if f != ".DS_Store"]
+                    if not entries:
+                        ds_store = os.path.join(curr_dir, ".DS_Store")
+                        if os.path.exists(ds_store):
+                            try:
+                                os.remove(ds_store)
+                            except OSError:
+                                pass
                         parent_next = os.path.dirname(curr_dir)
-                        shutil.rmtree(curr_dir, ignore_errors=True)
+                        try:
+                            os.rmdir(curr_dir)
+                        except OSError:
+                            break
                         curr_dir = parent_next
                     else:
                         break
@@ -949,12 +996,13 @@ def get_download_logs(download_id: str):
 def stream_download_logs(download_id: str):
     """Server-Sent Events endpoint to stream raw logs in real time (bounded by MAX_SSE_STREAMS - L1)"""
     global _active_sse_streams
-    if _active_sse_streams >= MAX_SSE_STREAMS:
-        raise HTTPException(status_code=429, detail="Too many active log streams")
+    with _sse_lock:
+        if _active_sse_streams >= MAX_SSE_STREAMS:
+            raise HTTPException(status_code=429, detail="Too many active log streams")
+        _active_sse_streams += 1
 
     async def log_generator():
         global _active_sse_streams
-        _active_sse_streams += 1
         sent_index = 0
         try:
             while True:
@@ -979,7 +1027,8 @@ def stream_download_logs(download_id: str):
 
                 await asyncio.sleep(0.5)
         finally:
-            _active_sse_streams = max(0, _active_sse_streams - 1)
+            with _sse_lock:
+                _active_sse_streams = max(0, _active_sse_streams - 1)
 
     return StreamingResponse(log_generator(), media_type="text/event-stream")
 

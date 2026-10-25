@@ -47,12 +47,31 @@ SENSITIVE_QUERY_KEYS = {
     "code",
     "credential",
     "credentials",
+    # Sensitive CDN, playback IP, and stream integrity parameters (F-06)
+    "ip",
+    "lsig",
+    "pot",
+    "n",
+    "ei",
+    "s",
+    "st",
+    "e",
+    "md5",
+    "hash",
+    "hmac",
+    "exp",
+    "expire",
+    "acl",
 }
 
 SENSITIVE_KEY_PREFIXES = ("x-amz-", "x-goog-", "x-oss-", "x-ms-")
-SENSITIVE_KEY_SUBSTRINGS = ("token", "secret", "passw", "signature")
+SENSITIVE_KEY_SUBSTRINGS = ("token", "secret", "passw", "signature", "sig", "hash", "hmac")
 
 _URL_IN_TEXT_RE = re.compile(r"https?://[^\s\"'<>]+", re.IGNORECASE)
+_PATH_TOKEN_RE = re.compile(r"/(hdnts|hdnea|hdntl|token|sig|hmac)=[^/]+/", re.IGNORECASE)
+_BEARER_RE = re.compile(r"(Authorization:\s*Bearer\s+)[^\s\r\n]+", re.IGNORECASE)
+_COOKIE_HEADER_RE = re.compile(r"((?:Set-)?Cookie:\s*)[^\r\n]+", re.IGNORECASE)
+_SID_COOKIE_RE = re.compile(r"((?:SID|HSID|SSID|APISID|SAPISID|LOGIN_INFO)=)[^;\s\r\n]+", re.IGNORECASE)
 
 
 def _is_sensitive_key(key: str) -> bool:
@@ -95,7 +114,11 @@ def sanitize_url_for_storage(url: str) -> str:
                 safe=",:/",
             )
 
-    return urlunsplit((parts.scheme, netloc, parts.path, query, ""))
+    path = parts.path
+    if path and "=" in path:
+        path = _PATH_TOKEN_RE.sub(r"/\1=REDACTED/", path)
+
+    return urlunsplit((parts.scheme, netloc, path, query, ""))
 
 
 def url_was_redacted(url: str) -> bool:
@@ -103,7 +126,13 @@ def url_was_redacted(url: str) -> bool:
 
 
 def redact_urls_in_text(text: str) -> str:
-    """Sanitizes every http(s) URL embedded inside a free-form text/log line."""
-    if not text or "://" not in text:
+    """Sanitizes every http(s) URL, authorization header, and session cookie in free-form text."""
+    if not text:
         return text
-    return _URL_IN_TEXT_RE.sub(lambda m: sanitize_url_for_storage(m.group(0)), text)
+    res = text
+    if "://" in res:
+        res = _URL_IN_TEXT_RE.sub(lambda m: sanitize_url_for_storage(m.group(0)), res)
+    res = _BEARER_RE.sub(r"\1REDACTED", res)
+    res = _COOKIE_HEADER_RE.sub(r"\1REDACTED", res)
+    res = _SID_COOKIE_RE.sub(r"\1REDACTED", res)
+    return res

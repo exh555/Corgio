@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Corgio</title>
     <link rel="icon" type="image/svg+xml" href="/static/logo.svg">
-    <link rel="stylesheet" href="/static/style.css?v=1.0.7">
-    <script src="/static/theme-init.js?v=1.0.7"></script>
+    <link rel="stylesheet" href="/static/style.css?v=1.1.0">
+    <script src="/static/theme-init.js?v=1.1.0"></script>
 </head>
 <body>
     <div class="app-shell">
@@ -163,6 +163,16 @@
                         <input type="checkbox" id="setting-access-logs">
                         <span>Enable Server HTTP Access Logs (<code>uvicorn.access</code>)</span>
                     </label>
+
+                    <label class="checkbox-row" for="setting-persist-logs">
+                        <input type="checkbox" id="setting-persist-logs">
+                        <span>Persist Console Logs (save process output to media record)</span>
+                    </label>
+
+                    <label class="checkbox-row" for="setting-track-plays">
+                        <input type="checkbox" id="setting-track-plays">
+                        <span>Track Media Play Counts &amp; Play Activity</span>
+                    </label>
                 </div>
 
                 <div class="options-actions">
@@ -193,7 +203,7 @@
                         <div class="sys-kv-list">
                             <div class="sys-kv">
                                 <span>Corgio Version</span>
-                                <strong id="sys-app-version">v1.0.7</strong>
+                                <strong id="sys-app-version">v1.1.0</strong>
                             </div>
                             <div class="sys-kv">
                                 <span>yt-dlp Version</span>
@@ -729,6 +739,6 @@
     <!-- ==================== TOAST NOTIFICATION CONTAINER ==================== -->
     <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
-    <script src="/static/app.js?v=1.0.7"></script>
+    <script src="/static/app.js?v=1.1.0"></script>
 </body>
 </html>

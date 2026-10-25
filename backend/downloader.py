@@ -11,8 +11,9 @@ import signal
 import socket
 import ipaddress
 import time
+import selectors
 from datetime import datetime
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 from backend import database
 from backend import updater
 from backend import privacy
@@ -137,14 +138,7 @@ def _is_restricted_ip(ip_str: str) -> bool:
         ip_obj = ipaddress.ip_address(ip_str)
         if isinstance(ip_obj, ipaddress.IPv6Address) and ip_obj.ipv4_mapped:
             ip_obj = ip_obj.ipv4_mapped
-        return (
-            ip_obj.is_loopback
-            or ip_obj.is_private
-            or ip_obj.is_link_local
-            or ip_obj.is_multicast
-            or ip_obj.is_reserved
-            or ip_obj.is_unspecified
-        )
+        return not ip_obj.is_global
     except ValueError:
         return False
 
@@ -153,6 +147,7 @@ def validate_download_url(url: str) -> str:
     """
     Validates that the URL is a well-formed public HTTP/HTTPS URL, contains no whitespace
     or control characters, cannot be parsed as a CLI option, and does not target internal/SSRF addresses.
+    Unwraps search engine redirection wrappers (e.g. Google /url?q=...).
     """
     if not url or not url.strip():
         raise ValueError("URL cannot be empty")
@@ -161,6 +156,17 @@ def validate_download_url(url: str) -> str:
         raise ValueError("Invalid URL: cannot start with '-'")
     if any(ord(c) <= 32 or ord(c) == 127 for c in clean):
         raise ValueError("Invalid URL: cannot contain whitespace or control characters")
+
+    # Unwrap search engine redirectors (e.g. google.com/url?q=...)
+    try:
+        parsed_redir = urlparse(clean)
+        if parsed_redir.hostname and parsed_redir.hostname.endswith("google.com") and parsed_redir.path == "/url":
+            qs = parse_qs(parsed_redir.query)
+            target = qs.get("q", [None])[0] or qs.get("url", [None])[0]
+            if target and (target.startswith("http://") or target.startswith("https://")):
+                clean = target.strip()
+    except Exception:
+        pass
 
     parsed = urlparse(clean)
     if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc or not parsed.hostname:
@@ -186,9 +192,11 @@ def validate_download_url(url: str) -> str:
             if _is_restricted_ip(host):
                 raise ValueError("URL targets a restricted private, loopback, or link-local IP address")
         else:
-            # Resolve DNS if available and verify none of the A/AAAA records point to internal IPs
+            # Resolve DNS and fail closed if unresolvable or if any IP points to non-global address
             try:
                 addr_info = socket.getaddrinfo(host, None)
+                if not addr_info:
+                    raise ValueError("URL host could not be resolved via DNS")
                 for entry in addr_info:
                     resolved_ip = entry[4][0]
                     if _is_restricted_ip(resolved_ip):
@@ -196,8 +204,7 @@ def validate_download_url(url: str) -> str:
                             "URL resolves to a restricted internal, loopback, or private network address"
                         )
             except socket.gaierror:
-                # If offline or unresolvable at validation time, yt-dlp will fail safely during fetch
-                pass
+                raise ValueError("URL host cannot be resolved via DNS")
 
     return clean
 
@@ -224,8 +231,9 @@ def is_explicit_playlist_url(raw_url: str) -> bool:
         if "soundcloud.com" in netloc and "/sets/" in path:
             return True
 
-        # Bandcamp album
-        if "/album/" in path:
+        # Album containers on supported audio/music platforms (F-18)
+        MUSIC_ALBUM_DOMAINS = ("bandcamp.com", "soundcloud.com", "music.apple.com", "spotify.com")
+        if "/album/" in path and any(d in netloc for d in MUSIC_ALBUM_DOMAINS):
             return True
 
         return False
@@ -285,9 +293,10 @@ def get_cookies_status() -> dict:
     if path:
         try:
             stat = os.stat(path)
+            display_path = "/config/cookies.txt" if "/config" in path else os.path.basename(path)
             return {
                 "active": True,
-                "path": path,
+                "path": display_path,
                 "filename": os.path.basename(path),
                 "size_bytes": stat.st_size,
                 "mtime": stat.st_mtime,
@@ -610,6 +619,51 @@ def purge_download_state(download_id):
         with state_lock:
             cancelled_downloads.discard(download_id)
             purged_downloads.discard(download_id)
+
+
+def scrub_container_metadata(file_path: str, ffmpeg_bin: str = None) -> bool:
+    """
+    Performs a fast stream-copy remux using ffmpeg with -map_metadata -1 -map_chapters -1
+    to scrub all container tags, comments, and chapter metadata without re-encoding (F-11).
+    """
+    if not ffmpeg_bin:
+        ffmpeg_bin = updater.get_ffmpeg_binary("ffmpeg")
+    if not ffmpeg_bin or not os.path.exists(file_path):
+        return False
+    ext = os.path.splitext(file_path)[1]
+    tmp_out = f"{file_path}.clean{ext}"
+    try:
+        cmd = [
+            ffmpeg_bin,
+            "-y",
+            "-loglevel", "error",
+            "-nostdin",
+            "-protocol_whitelist", "file",
+            "-i", os.path.realpath(file_path),
+            "-map", "0",
+            "-map_metadata", "-1",
+            "-map_chapters", "-1",
+            "-c", "copy",
+            os.path.realpath(tmp_out),
+        ]
+        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
+        if res.returncode == 0 and os.path.exists(tmp_out) and os.path.getsize(tmp_out) > 0:
+            os.replace(tmp_out, file_path)
+            return True
+        else:
+            if os.path.exists(tmp_out):
+                try:
+                    os.remove(tmp_out)
+                except OSError:
+                    pass
+            return False
+    except Exception:
+        if os.path.exists(tmp_out):
+            try:
+                os.remove(tmp_out)
+            except OSError:
+                pass
+        return False
 
 
 def generate_video_thumbnail(video_path, thumbnail_path, duration=0, download_id=None):
@@ -967,7 +1021,9 @@ def run_yt_dlp_download(download_id, url, settings):
                     if info_data.get("uploader_url")
                     else None,
                     "upload_date": upload_date,
-                    "description": info_data.get("description"),
+                    "description": privacy.redact_urls_in_text(info_data.get("description"))
+                    if info_data.get("description")
+                    else None,
                     "width": info_data.get("width"),
                     "height": info_data.get("height"),
                     "fps": info_data.get("fps"),
@@ -1160,70 +1216,115 @@ def run_yt_dlp_download(download_id, url, settings):
         with state_lock:
             active_processes[download_id] = process
 
-        for line in process.stdout:
-            if _is_cancelled_or_purged(download_id):
-                _kill_process_tree(process)
-                return
+        sel = selectors.DefaultSelector()
+        sel.register(process.stdout, selectors.EVENT_READ)
+        last_activity = time.monotonic()
+        WATCHDOG_TIMEOUT_SEC = 300.0  # 5 minutes without process output
+        timed_out = False
+        disk_exhausted = False
 
-            clean_line = line.strip()
-            if not clean_line or clean_line.startswith("Deprecated Feature: Support for Python version"):
-                continue
-            _append_log(download_id, clean_line)
+        try:
+            while True:
+                if _is_cancelled_or_purged(download_id):
+                    _kill_process_tree(process)
+                    return
 
-            prog_match = progress_re.search(clean_line)
-            if prog_match:
-                progress = float(prog_match.group(1))
-                speed = prog_match.group(3)
-                eta = prog_match.group(4)
+                events = sel.select(timeout=1.5)
+                if not events:
+                    if process.poll() is not None:
+                        break
+                    now = time.monotonic()
+                    if now - last_activity > WATCHDOG_TIMEOUT_SEC:
+                        timed_out = True
+                        _append_log(download_id, "[system] Error: Download stalled (no data received for 300 seconds). Aborting.")
+                        _kill_process_tree(process)
+                        break
+                    continue
 
-                with state_lock:
-                    if download_id in download_progress:
-                        download_progress[download_id]["progress"] = progress
-                        download_progress[download_id]["speed"] = speed
-                        download_progress[download_id]["eta"] = eta
+                line = process.stdout.readline()
+                if not line:
+                    if process.poll() is not None:
+                        break
+                    continue
 
-                now = time.monotonic()
-                if now - last_db_progress_update >= 1.5 or progress >= 100.0:
-                    last_db_progress_update = now
-                    _safe_update_db(
-                        download_id,
-                        progress=progress,
-                        speed=speed,
-                        eta=eta,
-                        status="downloading",
-                    )
+                last_activity = time.monotonic()
+                clean_line = line.strip()
+                if not clean_line or clean_line.startswith("Deprecated Feature: Support for Python version"):
+                    continue
+                _append_log(download_id, clean_line)
 
-            dest_match = destination_re.match(clean_line)
-            if dest_match:
-                candidate = dest_match.group(1).strip()
-                if is_path_within(candidate, job_work_dir):
-                    work_filepath = candidate
+                # Monitor remaining disk space on work partition
+                if MIN_FREE_DISK_BYTES > 0:
+                    try:
+                        free_space = shutil.disk_usage(job_work_dir).free
+                        if free_space < MIN_FREE_DISK_BYTES:
+                            disk_exhausted = True
+                            _append_log(download_id, f"[system] Error: Aborted due to low disk space (< {MIN_FREE_DISK_BYTES // (1024*1024)}MB free).")
+                            _kill_process_tree(process)
+                            break
+                    except Exception:
+                        pass
 
-            merge_match = merge_re.match(clean_line)
-            if merge_match:
-                candidate = merge_match.group(1).strip()
-                if is_path_within(candidate, job_work_dir):
-                    work_filepath = candidate
-                with state_lock:
-                    if download_id in download_progress:
-                        download_progress[download_id]["stage"] = "encoding"
+                prog_match = progress_re.search(clean_line)
+                if prog_match:
+                    progress = float(prog_match.group(1))
+                    speed = prog_match.group(3)
+                    eta = prog_match.group(4)
 
-            audio_match = audio_re.match(clean_line)
-            if audio_match:
-                candidate = audio_match.group(1).strip()
-                if is_path_within(candidate, job_work_dir):
-                    work_filepath = candidate
-                with state_lock:
-                    if download_id in download_progress:
-                        download_progress[download_id]["stage"] = "encoding"
+                    with state_lock:
+                        if download_id in download_progress:
+                            download_progress[download_id]["progress"] = progress
+                            download_progress[download_id]["speed"] = speed
+                            download_progress[download_id]["eta"] = eta
 
-            if any(
-                clean_line.startswith(tag)
-                for tag in ("[Merger]", "[ExtractAudio]", "[Fixup", "[EmbedSubtitle]", "[ffmpeg]")
-            ):
-                with state_lock:
-                    if download_id in download_progress:
-                        download_progress[download_id]["stage"] = "encoding"
+                    now = time.monotonic()
+                    if now - last_db_progress_update >= 1.5 or progress >= 100.0:
+                        last_db_progress_update = now
+                        _safe_update_db(
+                            download_id,
+                            progress=progress,
+                            speed=speed,
+                            eta=eta,
+                            status="downloading",
+                        )
+
+                dest_match = destination_re.match(clean_line)
+                if dest_match:
+                    candidate = dest_match.group(1).strip()
+                    if is_path_within(candidate, job_work_dir):
+                        work_filepath = candidate
+
+                merge_match = merge_re.match(clean_line)
+                if merge_match:
+                    candidate = merge_match.group(1).strip()
+                    if is_path_within(candidate, job_work_dir):
+                        work_filepath = candidate
+                    with state_lock:
+                        if download_id in download_progress:
+                            download_progress[download_id]["stage"] = "encoding"
+
+                audio_match = audio_re.match(clean_line)
+                if audio_match:
+                    candidate = audio_match.group(1).strip()
+                    if is_path_within(candidate, job_work_dir):
+                        work_filepath = candidate
+                    with state_lock:
+                        if download_id in download_progress:
+                            download_progress[download_id]["stage"] = "encoding"
+
+                if any(
+                    clean_line.startswith(tag)
+                    for tag in ("[Merger]", "[ExtractAudio]", "[Fixup", "[EmbedSubtitle]", "[ffmpeg]")
+                ):
+                    with state_lock:
+                        if download_id in download_progress:
+                            download_progress[download_id]["stage"] = "encoding"
+        finally:
+            try:
+                sel.unregister(process.stdout)
+                sel.close()
+            except Exception:
+                pass
 
         process.wait()
 
@@ -1233,6 +1334,16 @@ def run_yt_dlp_download(download_id, url, settings):
         if download_id in cancelled_downloads:
             _safe_update_db(download_id, status="stopped", error_log="Stopped by user")
             _append_log(download_id, "[system] Download stopped by user request.")
+            return
+
+        if timed_out:
+            _safe_update_db(download_id, status="failed", error_log="Download stalled (watchdog timeout)")
+            _safe_activity_log(download_id, "DOWNLOAD_FAILED", f"Download stalled (watchdog timeout) for ID {download_id}")
+            return
+
+        if disk_exhausted:
+            _safe_update_db(download_id, status="failed", error_log="Low disk space")
+            _safe_activity_log(download_id, "DOWNLOAD_FAILED", f"Download aborted due to low disk space for ID {download_id}")
             return
 
         # Collect all valid, non-empty media files completed in job_work_dir
@@ -1251,6 +1362,13 @@ def run_yt_dlp_download(download_id, url, settings):
         if candidates:
             # Sort by mtime so earlier downloaded items are processed in chronological order
             candidates.sort(key=lambda p: os.path.getmtime(p))
+
+            # Strip container tags and chapters via stream copy unless user explicitly requested metadata embedding (F-11)
+            if not any(a in ("--embed-metadata", "--add-metadata") for a in validated_args):
+                _append_log(download_id, "[encoder] Scrubbing container metadata and tags via stream copy...")
+                for c_path in candidates:
+                    scrub_container_metadata(c_path)
+
             primary_path = candidates[0]
             filename = os.path.basename(primary_path)
             final_filepath = os.path.realpath(os.path.join(target_dir, filename))
@@ -1329,7 +1447,9 @@ def run_yt_dlp_download(download_id, url, settings):
 
             with state_lock:
                 current_logs = list(logs_queue.get(download_id, []))
-            saved_log = "\n".join(current_logs) if current_logs else None
+            app_settings = database.get_settings()
+            persist_logs = app_settings.get("persist_download_logs", True)
+            saved_log = "\n".join(current_logs) if (current_logs and persist_logs) else None
 
             _safe_update_db(
                 download_id,
@@ -1381,6 +1501,11 @@ def run_yt_dlp_download(download_id, url, settings):
                     extra_duration = extra_probed["duration"]
 
                 database.add_download(extra_id, safe_url, title=extra_title, status="completed")
+                extra_log = (
+                    f"[system] Downloaded as part of playlist item from {safe_url}\n[system] File: {extra_filename}"
+                    if persist_logs
+                    else None
+                )
                 database.update_download(
                     extra_id,
                     filename=extra_filename,
@@ -1393,7 +1518,7 @@ def run_yt_dlp_download(download_id, url, settings):
                     speed="0 KB/s",
                     eta="00:00",
                     metadata_json=extra_meta_json,
-                    download_log=f"[system] Downloaded as part of playlist item from {safe_url}\n[system] File: {extra_filename}",
+                    download_log=extra_log,
                 )
                 _append_log(download_id, f"[system] Playlist item completed: {extra_filename}")
                 _safe_activity_log(extra_id, "DOWNLOAD_COMPLETE", f"Completed playlist item: {extra_filename}")
