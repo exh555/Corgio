@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Corgio</title>
     <link rel="icon" type="image/svg+xml" href="/static/logo.svg">
-    <link rel="stylesheet" href="/static/style.css?v=1.2.0">
-    <script src="/static/theme-init.js?v=1.2.0"></script>
+    <link rel="stylesheet" href="/static/style.css?v=1.2.1">
+    <script src="/static/theme-init.js?v=1.2.1"></script>
 </head>
 <body>
     <div class="app-shell">
@@ -51,42 +51,46 @@
 
             <!-- Central URL Omnibox -->
             <form id="download-form" class="omnibox" autocomplete="off">
-                <span class="omnibox-icon" aria-hidden="true">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-                        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-                    </svg>
-                </span>
-                <input
-                    type="url"
-                    id="url-input"
-                    class="omnibox-input"
-                    placeholder="Paste video or audio URL to download..."
-                    required
-                    aria-label="Video or audio URL"
-                >
-                <span class="kbd-hint" title="Press Cmd+V / Ctrl+V or drag &amp; drop a link anywhere on the page">⌘V / Drop</span>
+                <div class="omnibox-input-row">
+                    <span class="omnibox-icon" aria-hidden="true">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                        </svg>
+                    </span>
+                    <input
+                        type="url"
+                        id="url-input"
+                        class="omnibox-input"
+                        placeholder="Paste video or audio URL to download... (or press /)"
+                        required
+                        aria-label="Video or audio URL"
+                    >
+                    <span class="kbd-hint" title="Press Cmd+V / Ctrl+V or drag &amp; drop a link anywhere on the page">⌘V / Drop</span>
+                </div>
                 <div class="omnibox-divider"></div>
-                <select id="format-select" class="omnibox-select" aria-label="Output format">
-                    <option value="mp4">MP4 Video</option>
-                    <option value="best">Best Container</option>
-                    <option value="audio">MP3 Audio</option>
-                </select>
-                <div class="omnibox-divider"></div>
-                <button type="button" class="btn btn-sm" id="btn-toggle-options" title="Configure download options and defaults">
-                    Options ▾
-                </button>
-                <button type="button" class="btn btn-sm" id="btn-paste-go" title="Read URL from clipboard and start download immediately">
-                    Paste &amp; Go
-                </button>
-                <button type="submit" class="btn btn-primary btn-sm" id="download-btn">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                        <polyline points="7 10 12 15 17 10"/>
-                        <line x1="12" y1="15" x2="12" y2="3"/>
-                    </svg>
-                    <span>Download</span>
-                </button>
+                <div class="omnibox-actions">
+                    <select id="format-select" class="omnibox-select" aria-label="Output format">
+                        <option value="mp4">MP4 Video</option>
+                        <option value="best">Best Container</option>
+                        <option value="audio">MP3 Audio</option>
+                    </select>
+                    <div class="omnibox-divider-sub"></div>
+                    <button type="button" class="btn btn-sm" id="btn-toggle-options" title="Configure download options and defaults">
+                        Options ▾
+                    </button>
+                    <button type="button" class="btn btn-sm" id="btn-paste-go" title="Read URL from clipboard and start download immediately">
+                        Paste &amp; Go
+                    </button>
+                    <button type="submit" class="btn btn-primary btn-sm" id="download-btn">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="7 10 12 15 17 10"/>
+                            <line x1="12" y1="15" x2="12" y2="3"/>
+                        </svg>
+                        <span>Download</span>
+                    </button>
+                </div>
             </form>
 
             <!-- Right Telemetry & Theme/System Controls -->
@@ -148,7 +152,7 @@
                 <div class="field">
                     <label for="custom-args-input">Additional yt-dlp CLI Flags</label>
                     <input type="text" id="custom-args-input" placeholder="e.g. --geo-bypass --embed-chapters">
-                    <span class="field-hint" style="font-size: 11px; color: var(--text-sub); margin-top: 3px; display: block;">Supports PO tokens (<code>--extractor-args "youtube:po_token=android.gvs+..."</code>) or install cookies in System Drawer.</span>
+                    <span class="field-hint" style="color: var(--text-sub); margin-top: 3px; display: block;">Supports PO tokens (<code>--extractor-args "youtube:po_token=android.gvs+..."</code>) or install cookies in System Drawer.</span>
                 </div>
             </div>
 
@@ -203,7 +207,7 @@
                         <div class="sys-kv-list">
                             <div class="sys-kv">
                                 <span>Corgio Version</span>
-                                <strong id="sys-app-version">v1.2.0</strong>
+                                <strong id="sys-app-version">v1.2.1</strong>
                             </div>
                             <div class="sys-kv">
                                 <span>yt-dlp Version</span>
@@ -258,7 +262,7 @@
                                 <strong id="cookies-size-text">--</strong>
                             </div>
                         </div>
-                        <p style="font-size: 11px; color: var(--text-sub); margin: 0 0 6px 0; line-height: 1.4;">
+                        <p class="field-hint" style="margin: 0 0 6px 0;">
                             Provide a <code>cookies.txt</code> file to enable 1080p, 1440p, &amp; 4K downloads on YouTube and bypass bot/SABR restrictions.
                         </p>
                         <div class="sys-actions">
@@ -470,7 +474,7 @@
             </div>
             <div class="modal-body">
                 <pre id="update-log-content" class="console-pre">Waiting for update output...</pre>
-                <div style="margin-top:8px;font-size:11px;color:var(--text-muted);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
+                <div class="field-hint" style="margin-top:8px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
                     <span>You can close this window at any time; updates continue safely in the background.</span>
                     <span id="update-modal-status-text"></span>
                 </div>
@@ -511,7 +515,7 @@
                 </div>
 
                 <label class="checkbox-box" for="delete-file-checkbox">
-                    <input type="checkbox" id="delete-file-checkbox" checked>
+                    <input type="checkbox" id="delete-file-checkbox">
                     <div>
                         <strong>Also delete media file(s) from disk</strong>
                         <p>Removes the downloaded file from <code>/downloads</code> and cleans up empty domain folders.</p>
@@ -631,7 +635,7 @@
                     </div>
                     <div class="field" style="margin-bottom: 14px;">
                         <label for="account-confirm-password">Confirm New Password</label>
-                        <input type="password" id="account-confirm-password" placeholder="Repeat new password..." minlength="6" required>
+                        <input type="password" id="account-confirm-password" placeholder="Repeat new password..." minlength="8" required>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-sm" id="cancel-account-modal">Cancel</button>
@@ -739,6 +743,6 @@
     <!-- ==================== TOAST NOTIFICATION CONTAINER ==================== -->
     <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
-    <script src="/static/app.js?v=1.2.0"></script>
+    <script src="/static/app.js?v=1.2.1"></script>
 </body>
 </html>

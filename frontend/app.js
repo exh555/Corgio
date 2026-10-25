@@ -1143,7 +1143,7 @@ function renderTableView(items) {
         }
 
         actionsHtml += `
-            <button type="button" class="btn btn-xs btn-danger" data-action="purge" data-id="${escapeHtml(id)}" title="Zero-trace purge item and logs">Purge</button>
+            <button type="button" class="btn btn-xs btn-danger btn-purge-safe" data-action="purge" data-id="${escapeHtml(id)}" title="Zero-trace purge item and logs">Purge</button>
         `;
 
         return `
@@ -1152,10 +1152,10 @@ function renderTableView(items) {
                     <input type="checkbox" class="item-checkbox" data-id="${escapeHtml(id)}" ${isSelected ? 'checked' : ''} aria-label="Select ${escapeHtml(item.title || id)}">
                 </td>
                 <td class="col-preview">
-                    <div class="thumb-mini" data-action="${isCompleted ? 'play' : 'info'}" data-id="${escapeHtml(id)}" title="${isCompleted ? 'Click to play' : 'Click for details'}">
+                    <button type="button" class="thumb-mini" data-action="${isCompleted ? 'play' : 'info'}" data-id="${escapeHtml(id)}" title="${isCompleted ? 'Click to play' : 'Click for details'}" aria-label="${isCompleted ? 'Play' : 'View details for'} ${escapeHtml(item.title || id)}">
                         <img src="${escapeHtml(thumbUrl)}" alt="" loading="lazy" class="media-thumb-img">
                         ${isCompleted && item.duration ? `<span class="thumb-mini-dur">${escapeHtml(durStr)}</span>` : ''}
-                    </div>
+                    </button>
                 </td>
                 <td class="col-title">
                     <div class="row-title-text" title="${escapeHtml(item.title || item.url)}">${escapeHtml(item.title || item.url)}</div>
@@ -1231,7 +1231,7 @@ function renderGridView(items) {
 
         return `
             <article class="m-card ${isSelected ? 'card-selected' : ''}" data-id="${escapeHtml(id)}">
-                <div class="m-thumb" data-action="${isCompleted ? 'play' : 'info'}" data-id="${escapeHtml(id)}">
+                <div class="m-thumb" role="button" tabindex="0" data-action="${isCompleted ? 'play' : 'info'}" data-id="${escapeHtml(id)}" aria-label="${isCompleted ? 'Play' : 'View details for'} ${escapeHtml(item.title || id)}">
                     <div class="m-check-wrap" data-stop-prop="true">
                         <input type="checkbox" class="item-checkbox" data-id="${escapeHtml(id)}" ${isSelected ? 'checked' : ''} aria-label="Select ${escapeHtml(item.title || id)}">
                     </div>
@@ -1253,7 +1253,7 @@ function renderGridView(items) {
                             ${leftActions}
                         </div>
                         <div class="m-footer-right">
-                            <button type="button" class="btn btn-xs btn-danger" data-action="purge" data-id="${escapeHtml(id)}">Purge</button>
+                            <button type="button" class="btn btn-xs btn-danger btn-purge-safe" data-action="purge" data-id="${escapeHtml(id)}">Purge</button>
                         </div>
                     </div>
                 </div>
@@ -2405,6 +2405,15 @@ document.addEventListener('DOMContentLoaded', () => {
         else if (action === 'purge') openPurgeModal([id]);
     });
 
+    libraryScroll?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            const actionEl = e.target.closest('[data-action]');
+            if (!actionEl || actionEl.tagName === 'INPUT') return;
+            e.preventDefault();
+            actionEl.click();
+        }
+    });
+
     // 8. System Drawer Actions
     document.getElementById('check-updates-btn')?.addEventListener('click', () => checkComponentUpdates(true));
     document.getElementById('update-btn')?.addEventListener('click', runEngineUpdate);
@@ -2530,7 +2539,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if ((e.key === 'q' || e.key === 'Q') && !e.ctrlKey && !e.metaKey && !e.altKey) {
             const tag = document.activeElement?.tagName;
             if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT' && !document.activeElement?.isContentEditable) {
-                const anyModalOpen = document.querySelector('.modal-backdrop:not(.hidden)');
+                const anyModalOpen = document.querySelector('.modal-backdrop:not(.hidden)') || document.querySelector('.modal:not(.hidden)');
                 if (!anyModalOpen) {
                     e.preventDefault();
                     toggleQueueDock();
@@ -2538,7 +2547,26 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
+        // Quick focus Omnibox with '/'
+        if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            const tag = document.activeElement?.tagName;
+            if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT' && !document.activeElement?.isContentEditable) {
+                const anyModalOpen = document.querySelector('.modal:not(.hidden)');
+                if (!anyModalOpen) {
+                    e.preventDefault();
+                    document.getElementById('url-input')?.focus();
+                }
+            }
+        }
+
         if (e.key === 'Escape') {
+            // Close slide-down drawers
+            document.getElementById('drawer-options')?.classList.remove('open');
+            document.getElementById('drawer-system')?.classList.remove('open');
+            document.getElementById('btn-toggle-options')?.classList.remove('active');
+            document.getElementById('btn-toggle-system')?.classList.remove('active');
+
+            // Close modals
             closePlayerModal();
             closeLogModal();
             closeUpdateModal();
