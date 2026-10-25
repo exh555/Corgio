@@ -126,9 +126,9 @@ When adding a new column to the `downloads` table:
 - **Rule**: Upon download completion, always run `get_video_metadata(final_filepath)` using `ffprobe` to enrich the database record with the true container and stream parameters.
 - **Self-Healing**: When `GET /api/downloads/{id}` or File Info is requested, if an existing file on disk lacks codecs or bitrate, dynamically probe the file with `ffprobe` and persist the healed data into SQLite.
 
-### Console Log Persistence
-- Never purge console logs from disk.
-- When a download transitions to `completed`, `failed`, or `stopped`, automatically persist the full execution log into the `download_log` column in SQLite.
+### Console Log Retention & Secure Purge
+- **Routine Download Completion**: Do NOT discard or auto-purge console logs when a download finishes normally; persist the execution log in the `download_log` column in SQLite so the user can inspect it in the File Info modal.
+- **Explicit Item Purge**: When the user explicitly purges or deletes an item (`DELETE /api/downloads/{id}`), all logs (in-memory `logs_queue`, `download_log` in SQLite, and `activity_logs`) MUST be permanently and securely wiped (`PRAGMA secure_delete = ON` overwrites freed database pages with binary zeros, followed by WAL checkpoint truncation).
 - Ensure `/api/logs/{download_id}` falls back to the database record if the in-memory queue has been cleared.
 
 ### Terminal & Sandbox Rules
