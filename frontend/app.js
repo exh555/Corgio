@@ -1606,28 +1606,46 @@ async function capturePlayerThumbnail() {
     }
 
     const currentTime = Number(video.currentTime || 0);
+    const timeParam = currentTime.toFixed(2);
+    console.log(`[Corgio:Thumb] Triggering frame capture for download ID: ${id} at timestamp ${timeParam}s`);
+
     if (setBtn) {
         setBtn.disabled = true;
         setBtn.textContent = 'Saving Frame...';
     }
 
     try {
-        const res = await apiFetch(`${API_BASE}/downloads/${encodeURIComponent(id)}/thumbnail?time=${currentTime.toFixed(2)}`, {
+        const endpoint = `${API_BASE}/downloads/${encodeURIComponent(id)}/thumbnail?time=${timeParam}`;
+        console.log(`[Corgio:Thumb] Request: POST ${endpoint}`);
+        const res = await apiFetch(endpoint, {
             method: 'POST'
         });
+
         if (!res.ok) {
-            let errMsg = 'Failed to update thumbnail';
+            let errMsg = `Server returned status ${res.status}`;
             try {
-                const err = await res.json();
-                if (err && typeof err.detail === 'string') {
-                    errMsg = err.detail;
-                } else if (err && Array.isArray(err.detail) && err.detail.length > 0) {
-                    errMsg = err.detail.map((d) => d.msg || JSON.stringify(d)).join('; ');
+                const text = await res.text();
+                console.error(`[Corgio:Thumb] HTTP error ${res.status} received:`, text);
+                try {
+                    const parsed = JSON.parse(text);
+                    if (parsed && typeof parsed.detail === 'string') {
+                        errMsg = parsed.detail;
+                    } else if (parsed && Array.isArray(parsed.detail) && parsed.detail.length > 0) {
+                        errMsg = parsed.detail.map((d) => d.msg || JSON.stringify(d)).join('; ');
+                    } else if (text) {
+                        errMsg = text;
+                    }
+                } catch (_) {
+                    if (text) errMsg = text;
                 }
-            } catch (_) {}
+            } catch (readErr) {
+                console.error('[Corgio:Thumb] Failed reading error response body:', readErr);
+            }
             throw new Error(errMsg);
         }
+
         const data = await res.json();
+        console.log('[Corgio:Thumb] Frame captured and thumbnail updated successfully:', data);
         const item = appState.libraryItems.find((i) => String(i.id) === String(id));
         if (item) {
             item.thumbnail_url = data.thumbnail_url;
@@ -1636,6 +1654,7 @@ async function capturePlayerThumbnail() {
         const timeStr = formatDuration(Math.floor(currentTime));
         showToast(`Thumbnail set to video frame at ${timeStr}!`, 'success');
     } catch (err) {
+        console.error('[Corgio:Thumb] Frame capture failure:', err);
         showToast(err.message || 'Error updating thumbnail', 'error');
     } finally {
         if (setBtn) {

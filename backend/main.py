@@ -9,6 +9,7 @@ import json
 import logging
 import ipaddress
 import threading
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Query, Request, Response
@@ -26,7 +27,7 @@ from backend import privacy
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
-APP_VERSION = "1.2.7"
+APP_VERSION = "1.2.8"
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9_.-]{2,32}$")
 
 MAX_LOGIN_ATTEMPTS = 5
@@ -918,46 +919,57 @@ def update_thumbnail_from_frame(download_id: str, time: float = Query(0.0)):
     Extracts a video frame at the requested timestamp (seconds) and sets it as the download's thumbnail.
     Enforces strict path containment inside DOWNLOAD_DIR.
     """
-    info = database.get_download(download_id)
-    if not info:
-        raise HTTPException(status_code=404, detail="Download record not found")
+    try:
+        info = database.get_download(download_id)
+        if not info:
+            raise HTTPException(status_code=404, detail="Download record not found in database")
 
-    filepath = info.get("filepath")
-    if not filepath or not os.path.isfile(filepath):
-        raise HTTPException(status_code=404, detail="Media file not found on disk")
+        filepath = info.get("filepath")
+        if not filepath or not os.path.isfile(filepath):
+            raise HTTPException(status_code=404, detail=f"Media file not found on disk: {filepath or 'empty path'}")
 
-    if not downloader.is_path_within(filepath, downloader.DOWNLOAD_DIR):
-        raise HTTPException(status_code=403, detail="Access denied: file outside download directory")
+        if not downloader.is_path_within(filepath, downloader.DOWNLOAD_DIR):
+            raise HTTPException(status_code=403, detail="Access denied: file outside download directory")
 
-    safe_id = os.path.basename(download_id)
-    os.makedirs(downloader.THUMBNAIL_DIR, exist_ok=True)
-    thumb_path = os.path.join(downloader.THUMBNAIL_DIR, f"{safe_id}.jpg")
+        safe_id = os.path.basename(download_id)
+        os.makedirs(downloader.THUMBNAIL_DIR, exist_ok=True)
+        thumb_path = os.path.join(downloader.THUMBNAIL_DIR, f"{safe_id}.jpg")
 
-    success, err_detail = downloader.generate_video_thumbnail_detailed(
-        filepath, thumb_path, seek_sec=max(0.0, time), download_id=download_id
-    )
-    if not success:
-        if not updater.get_ffmpeg_binary("ffmpeg"):
-            raise HTTPException(status_code=500, detail="FFmpeg binary not available on host system")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Thumbnail extraction failed: {err_detail or 'unsupported or corrupt video format'}",
+        logging.info(f"[thumbnail] Initiating frame capture for id={download_id} at {time:.2f}s from {filepath}")
+        success, err_detail = downloader.generate_video_thumbnail_detailed(
+            filepath, thumb_path, seek_sec=max(0.0, time), download_id=download_id
+        )
+        if not success:
+            if not updater.get_ffmpeg_binary("ffmpeg"):
+                err_msg = "FFmpeg binary not available on host system"
+            else:
+                err_msg = f"Thumbnail extraction failed: {err_detail or 'unsupported or corrupt video format'}"
+            logging.error(f"[thumbnail] {err_msg} (file: {filepath}, seek: {time:.2f}s)")
+            database.add_activity_log("THUMBNAIL_ERROR", err_msg, download_id)
+            raise HTTPException(status_code=500, detail=err_msg)
+
+        thumb_url = f"/api/thumbnail/{safe_id}.jpg"
+        database.update_download(download_id, thumbnail_url=thumb_url)
+        database.add_activity_log(
+            "THUMBNAIL_UPDATE",
+            f"Thumbnail updated to frame at {time:.2f}s",
+            download_id,
         )
 
-    thumb_url = f"/api/thumbnail/{safe_id}.jpg"
-    database.update_download(download_id, thumbnail_url=thumb_url)
-    database.add_activity_log(
-        "THUMBNAIL_UPDATE",
-        f"Thumbnail updated to frame at {time:.2f}s",
-        download_id,
-    )
-
-    ts = int(datetime.now().timestamp())
-    return {
-        "status": "success",
-        "thumbnail_url": f"{thumb_url}?t={ts}",
-        "time": time,
-    }
+        ts = int(time.time())
+        logging.info(f"[thumbnail] Frame capture successful for id={download_id} at {time:.2f}s -> {thumb_url}?t={ts}")
+        return {
+            "status": "success",
+            "thumbnail_url": f"{thumb_url}?t={ts}",
+            "time": time,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        err_msg = f"Unexpected error during thumbnail frame capture: {str(e)}"
+        logging.error(f"[thumbnail] {err_msg}", exc_info=True)
+        database.add_activity_log("THUMBNAIL_ERROR", err_msg, download_id)
+        raise HTTPException(status_code=500, detail=err_msg)
 
 
 @app.delete("/api/downloads/{download_id}")

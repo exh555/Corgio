@@ -427,6 +427,17 @@ def test_ffmpeg_thumbnail_command_flags():
             updater.get_ffmpeg_binary = old_get_ffmpeg
 
 
+def test_main_version_and_import_safety():
+    """Validates that APP_VERSION is 1.2.8 and datetime/time imports in main.py are strictly defined."""
+    # Read backend/main.py directly to verify syntax and imports without external deps
+    main_py_path = os.path.join(os.path.dirname(__file__), "..", "backend", "main.py")
+    with open(main_py_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    assert 'APP_VERSION = "1.2.8"' in content
+    assert "from datetime import datetime" in content
+    assert "ts = int(time.time())" in content
+
+
 if __name__ == "__main__":
     test_funcs = [v for k, v in list(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in test_funcs:

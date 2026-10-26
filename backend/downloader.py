@@ -713,8 +713,6 @@ def generate_video_thumbnail_detailed(video_path, thumbnail_path, duration=0, se
             "-hide_banner",
             "-loglevel",
             "error",
-            "-protocol_whitelist",
-            "file,crypto,data,pipe",
             "-ss",
             seek_str,
             "-i",
@@ -754,8 +752,6 @@ def generate_video_thumbnail_detailed(video_path, thumbnail_path, duration=0, se
             "-hide_banner",
             "-loglevel",
             "error",
-            "-protocol_whitelist",
-            "file,crypto,data,pipe",
             "-i",
             abs_video_path,
             "-ss",
@@ -796,8 +792,6 @@ def generate_video_thumbnail_detailed(video_path, thumbnail_path, duration=0, se
                 "-hide_banner",
                 "-loglevel",
                 "error",
-                "-protocol_whitelist",
-                "file,crypto,data,pipe",
                 "-i",
                 abs_video_path,
                 "-ss",
@@ -827,7 +821,43 @@ def generate_video_thumbnail_detailed(video_path, thumbnail_path, duration=0, se
             if res3.returncode == 0 and os.path.exists(abs_thumb_path) and os.path.getsize(abs_thumb_path) > 0:
                 return True, ""
 
-        final_err = err_2 or err_1 or "FFmpeg exited without generating frame image"
+        # Mode 4: Automatic video stream detection (omit -map 0:v:0) in case stream 0 is not named 0:v:0
+        cmd_auto = [
+            ffmpeg_bin,
+            "-nostdin",
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            abs_video_path,
+            "-ss",
+            seek_str,
+            "-an",
+            "-sn",
+            "-dn",
+            "-vframes",
+            "1",
+            "-f",
+            "image2",
+            "-q:v",
+            "3",
+            abs_thumb_path,
+        ]
+        res4 = subprocess.run(
+            cmd_auto,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=15,
+            start_new_session=True,
+            env=sub_env,
+        )
+        if res4.returncode == 0 and os.path.exists(abs_thumb_path) and os.path.getsize(abs_thumb_path) > 0:
+            return True, ""
+
+        err_4 = res4.stderr.strip() if res4.stderr else ""
+        final_err = err_2 or err_1 or err_4 or "FFmpeg exited without generating frame image"
         if download_id:
             _append_log(download_id, f"[encoder] Thumbnail extraction failed: {final_err}")
         return False, final_err
