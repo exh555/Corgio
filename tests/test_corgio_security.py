@@ -17,6 +17,7 @@ import os
 import sys
 import tempfile
 import ipaddress
+import subprocess
 
 try:
     import pytest
@@ -375,12 +376,55 @@ def test_html_zero_cache_headers_and_meta():
 # ============================================================================
 def test_custom_seek_thumbnail_calculation():
     """Validates that generate_video_thumbnail handles custom seek_sec, defaults to 5s, and respects boundaries."""
-    res = downloader.generate_video_thumbnail("/nonexistent/video.mp4", "/tmp/out.jpg", seek_sec=12.5)
+    res, err = downloader.generate_video_thumbnail_detailed("/nonexistent/video.mp4", "/tmp/out.jpg", seek_sec=12.5)
     assert res is False
+    assert "Target video file does not exist" in err
+
     res2 = downloader.generate_video_thumbnail("/nonexistent/video.mp4", "/tmp/out.jpg", seek_sec=-10)
     assert res2 is False
     res3 = downloader.generate_video_thumbnail("/nonexistent/video.mp4", "/tmp/out.jpg", seek_sec="invalid")
     assert res3 is False
+
+
+def test_ffmpeg_thumbnail_command_flags():
+    """Validates that FFmpeg command includes stream isolation (-map 0:v:0 -an -sn -dn -f image2)."""
+    with tempfile.NamedTemporaryFile(suffix=".mp4") as tmp_vid:
+        captured_cmds = []
+
+        def fake_run(cmd, *args, **kwargs):
+            captured_cmds.append(cmd)
+            # Create the thumbnail file so it simulates success
+            thumb_path = cmd[-1]
+            with open(thumb_path, "wb") as f:
+                f.write(b"fake_jpeg_data")
+            class FakeResult:
+                returncode = 0
+                stdout = ""
+                stderr = ""
+            return FakeResult()
+
+        old_run = subprocess.run
+        old_get_ffmpeg = updater.get_ffmpeg_binary
+        subprocess.run = fake_run
+        updater.get_ffmpeg_binary = lambda name="ffmpeg": "/usr/bin/ffmpeg"
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".jpg") as tmp_thumb:
+                success, err = downloader.generate_video_thumbnail_detailed(
+                    tmp_vid.name, tmp_thumb.name, seek_sec=42.5
+                )
+                assert success is True
+                assert err == ""
+                assert len(captured_cmds) > 0
+                first_cmd = captured_cmds[0]
+                assert "-map" in first_cmd and "0:v:0" in first_cmd
+                assert "-an" in first_cmd
+                assert "-sn" in first_cmd
+                assert "-dn" in first_cmd
+                assert "-f" in first_cmd and "image2" in first_cmd
+                assert "-ss" in first_cmd and "00:00:42.500" in first_cmd
+        finally:
+            subprocess.run = old_run
+            updater.get_ffmpeg_binary = old_get_ffmpeg
 
 
 if __name__ == "__main__":

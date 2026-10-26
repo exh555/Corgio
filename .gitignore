@@ -6,6 +6,8 @@
 *.sqlite3
 downloads/
 config/
+bootstrap_credentials.txt
+.agents/
 
 # Python / Environment
 venv/

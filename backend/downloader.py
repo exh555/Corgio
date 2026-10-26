@@ -666,17 +666,21 @@ def scrub_container_metadata(file_path: str, ffmpeg_bin: str = None) -> bool:
         return False
 
 
-def generate_video_thumbnail(video_path, thumbnail_path, duration=0, seek_sec=None, download_id=None):
+def generate_video_thumbnail_detailed(video_path, thumbnail_path, duration=0, seek_sec=None, download_id=None):
     """
-    Uses ffmpeg with restricted file protocol whitelist to extract a thumbnail frame.
-    Supports custom seek_sec (e.g. from user player frame capture).
+    Uses ffmpeg with stream isolation (-map 0:v:0 -an -sn -dn -f image2) to extract a clean JPEG frame.
+    Supports input seek with output seek fallback. Returns (success: bool, error_detail: str).
     """
     try:
+        abs_video_path = os.path.realpath(video_path)
+        if not os.path.isfile(abs_video_path):
+            return False, "Target video file does not exist"
+
         ffmpeg_bin = updater.get_ffmpeg_binary("ffmpeg")
         if not ffmpeg_bin:
-            return False
+            return False, "FFmpeg binary not found on system"
         if download_id and _is_cancelled_or_purged(download_id):
-            return False
+            return False, "Download was cancelled or purged"
 
         if seek_sec is None:
             seek_sec = 5
@@ -693,15 +697,16 @@ def generate_video_thumbnail(video_path, thumbnail_path, duration=0, seek_sec=No
         secs = seek_num % 60
         seek_str = f"{hours:02d}:{mins:02d}:{secs:06.3f}"
 
-        if download_id:
-            _append_log(download_id, f"[encoder] Extracting thumbnail frame at {seek_str} via ffmpeg...")
-
-        abs_video_path = os.path.realpath(video_path)
         abs_thumb_path = os.path.realpath(thumbnail_path)
         os.makedirs(os.path.dirname(abs_thumb_path), exist_ok=True)
 
+        if download_id:
+            _append_log(download_id, f"[encoder] Extracting thumbnail frame at {seek_str} via ffmpeg...")
+
         sub_env = updater.get_yt_dlp_env()
-        cmd = [
+
+        # Mode 1: Fast input seek (-ss before -i) with stream isolation
+        cmd_input_seek = [
             ffmpeg_bin,
             "-nostdin",
             "-y",
@@ -709,21 +714,26 @@ def generate_video_thumbnail(video_path, thumbnail_path, duration=0, seek_sec=No
             "-loglevel",
             "error",
             "-protocol_whitelist",
-            "file,pipe",
+            "file,crypto,data,pipe",
             "-ss",
             seek_str,
             "-i",
             abs_video_path,
-            "-map_metadata",
-            "-1",
+            "-map",
+            "0:v:0",
+            "-an",
+            "-sn",
+            "-dn",
             "-vframes",
             "1",
+            "-f",
+            "image2",
             "-q:v",
-            "4",
+            "3",
             abs_thumb_path,
         ]
         result = subprocess.run(
-            cmd,
+            cmd_input_seek,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -732,13 +742,54 @@ def generate_video_thumbnail(video_path, thumbnail_path, duration=0, seek_sec=No
             env=sub_env,
         )
         if result.returncode == 0 and os.path.exists(abs_thumb_path) and os.path.getsize(abs_thumb_path) > 0:
-            return True
+            return True, ""
 
-        if download_id and result.stderr:
-            _append_log(download_id, f"[encoder] Thumbnail frame extraction notice: {result.stderr.strip()}")
+        err_1 = result.stderr.strip() if result.stderr else ""
 
+        # Mode 2: Output seek (-ss after -i) for precise decoding fallback
+        cmd_output_seek = [
+            ffmpeg_bin,
+            "-nostdin",
+            "-y",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-protocol_whitelist",
+            "file,crypto,data,pipe",
+            "-i",
+            abs_video_path,
+            "-ss",
+            seek_str,
+            "-map",
+            "0:v:0",
+            "-an",
+            "-sn",
+            "-dn",
+            "-vframes",
+            "1",
+            "-f",
+            "image2",
+            "-q:v",
+            "3",
+            abs_thumb_path,
+        ]
+        res2 = subprocess.run(
+            cmd_output_seek,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=15,
+            start_new_session=True,
+            env=sub_env,
+        )
+        if res2.returncode == 0 and os.path.exists(abs_thumb_path) and os.path.getsize(abs_thumb_path) > 0:
+            return True, ""
+
+        err_2 = res2.stderr.strip() if res2.stderr else ""
+
+        # Mode 3: Beginning of file (00:00:00) fallback if seek_num > 0 and not cancelled
         if seek_num > 0 and not (download_id and _is_cancelled_or_purged(download_id)):
-            cmd_fallback = [
+            cmd_zero = [
                 ffmpeg_bin,
                 "-nostdin",
                 "-y",
@@ -746,21 +797,26 @@ def generate_video_thumbnail(video_path, thumbnail_path, duration=0, seek_sec=No
                 "-loglevel",
                 "error",
                 "-protocol_whitelist",
-                "file,pipe",
-                "-ss",
-                "00:00:00",
+                "file,crypto,data,pipe",
                 "-i",
                 abs_video_path,
-                "-map_metadata",
-                "-1",
+                "-ss",
+                "00:00:00",
+                "-map",
+                "0:v:0",
+                "-an",
+                "-sn",
+                "-dn",
                 "-vframes",
                 "1",
+                "-f",
+                "image2",
                 "-q:v",
-                "4",
+                "3",
                 abs_thumb_path,
             ]
-            res2 = subprocess.run(
-                cmd_fallback,
+            res3 = subprocess.run(
+                cmd_zero,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -768,16 +824,27 @@ def generate_video_thumbnail(video_path, thumbnail_path, duration=0, seek_sec=No
                 start_new_session=True,
                 env=sub_env,
             )
-            if res2.returncode == 0 and os.path.exists(abs_thumb_path) and os.path.getsize(abs_thumb_path) > 0:
-                return True
+            if res3.returncode == 0 and os.path.exists(abs_thumb_path) and os.path.getsize(abs_thumb_path) > 0:
+                return True, ""
 
+        final_err = err_2 or err_1 or "FFmpeg exited without generating frame image"
         if download_id:
-            _append_log(download_id, "[encoder] Thumbnail extraction skipped or unsupported for this media stream.")
-        return False
-    except Exception:
+            _append_log(download_id, f"[encoder] Thumbnail extraction failed: {final_err}")
+        return False, final_err
+    except Exception as e:
         if download_id:
-            _append_log(download_id, "[encoder] Thumbnail generation encountered an error.")
-        return False
+            _append_log(download_id, f"[encoder] Thumbnail generation encountered an error: {e}")
+        return False, str(e)
+
+
+def generate_video_thumbnail(video_path, thumbnail_path, duration=0, seek_sec=None, download_id=None):
+    """
+    Backwards-compatible wrapper returning bool.
+    """
+    success, _ = generate_video_thumbnail_detailed(
+        video_path, thumbnail_path, duration=duration, seek_sec=seek_sec, download_id=download_id
+    )
+    return success
 
 
 def get_video_duration(video_path):

@@ -77,6 +77,8 @@ SAFE_SUBPROCESS_ENV_KEYS = (
     "REQUESTS_CA_BUNDLE",
     "CURL_CA_BUNDLE",
     "PYTHONPATH",
+    "LD_LIBRARY_PATH",
+    "LIBVA_DRIVER_NAME",
 )
 
 YTDLP_FFMPEG_BASE_URL = "https://github.com/yt-dlp/FFmpeg-Builds/releases/latest/download"
