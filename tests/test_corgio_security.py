@@ -438,6 +438,47 @@ def test_main_version_and_import_safety():
     assert "ts = int(time.time())" in content
 
 
+def test_ast_symbol_table_undefined_variables_audit():
+    """
+    Performs an automated AST/symbol-table static audit across all backend Python modules.
+    Guarantees no functions, handlers, or methods reference undefined globals or missing imports.
+    """
+    import symtable
+    import builtins
+
+    builtins_set = set(dir(builtins))
+    backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backend"))
+    undefined_symbols = []
+
+    for root, _, files in os.walk(backend_dir):
+        for f in sorted(files):
+            if f.endswith(".py"):
+                file_path = os.path.join(root, f)
+                with open(file_path, "r", encoding="utf-8") as py_f:
+                    src = py_f.read()
+                try:
+                    top = symtable.symtable(src, file_path, "exec")
+                except Exception as e:
+                    undefined_symbols.append(f"{f}: Parse error {e}")
+                    continue
+
+                top_globals = set(top.get_identifiers())
+
+                def check_scope(table, path):
+                    for s in table.get_symbols():
+                        if s.is_global() and s.is_referenced() and not s.is_assigned():
+                            name = s.get_name()
+                            if name not in top_globals and name not in builtins_set:
+                                undefined_symbols.append(f"{f} [{path}]: undefined '{name}'")
+                    for child in table.get_children():
+                        check_scope(child, f"{path}->{child.get_name()}")
+
+                for child in top.get_children():
+                    check_scope(child, child.get_name())
+
+    assert len(undefined_symbols) == 0, f"Found undefined variables: {undefined_symbols}"
+
+
 if __name__ == "__main__":
     test_funcs = [v for k, v in list(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in test_funcs:
