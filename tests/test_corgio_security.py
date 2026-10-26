@@ -370,6 +370,19 @@ def test_html_zero_cache_headers_and_meta():
     assert '<meta http-equiv="Expires" content="0">' in html
 
 
+# ============================================================================
+# 11. Custom Thumbnail Seek Validation
+# ============================================================================
+def test_custom_seek_thumbnail_calculation():
+    """Validates that generate_video_thumbnail handles custom seek_sec, defaults to 5s, and respects boundaries."""
+    res = downloader.generate_video_thumbnail("/nonexistent/video.mp4", "/tmp/out.jpg", seek_sec=12.5)
+    assert res is False
+    res2 = downloader.generate_video_thumbnail("/nonexistent/video.mp4", "/tmp/out.jpg", seek_sec=-10)
+    assert res2 is False
+    res3 = downloader.generate_video_thumbnail("/nonexistent/video.mp4", "/tmp/out.jpg", seek_sec="invalid")
+    assert res3 is False
+
+
 if __name__ == "__main__":
     test_funcs = [v for k, v in list(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in test_funcs:

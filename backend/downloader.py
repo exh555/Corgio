@@ -666,9 +666,10 @@ def scrub_container_metadata(file_path: str, ffmpeg_bin: str = None) -> bool:
         return False
 
 
-def generate_video_thumbnail(video_path, thumbnail_path, duration=0, download_id=None):
+def generate_video_thumbnail(video_path, thumbnail_path, duration=0, seek_sec=None, download_id=None):
     """
     Uses ffmpeg with restricted file protocol whitelist to extract a thumbnail frame.
+    Supports custom seek_sec (e.g. from user player frame capture).
     """
     try:
         ffmpeg_bin = updater.get_ffmpeg_binary("ffmpeg")
@@ -677,10 +678,20 @@ def generate_video_thumbnail(video_path, thumbnail_path, duration=0, download_id
         if download_id and _is_cancelled_or_purged(download_id):
             return False
 
-        seek_sec = 5
-        if duration and 0 < duration < 6:
-            seek_sec = max(0, int(duration // 3))
-        seek_str = f"00:00:{seek_sec:02d}"
+        if seek_sec is None:
+            seek_sec = 5
+            if duration and 0 < duration < 6:
+                seek_sec = max(0, int(duration // 3))
+
+        try:
+            seek_num = max(0.0, float(seek_sec))
+        except (ValueError, TypeError):
+            seek_num = 5.0
+
+        hours = int(seek_num // 3600)
+        mins = int((seek_num % 3600) // 60)
+        secs = seek_num % 60
+        seek_str = f"{hours:02d}:{mins:02d}:{secs:06.3f}"
 
         if download_id:
             _append_log(download_id, f"[encoder] Extracting thumbnail frame at {seek_str} via ffmpeg...")
@@ -1131,6 +1142,8 @@ def run_yt_dlp_download(download_id, url, settings):
             job_work_dir, f"%(title)s [%(id)s] [%(resolution,format_id)s] [{short_id}].%(ext)s"
         )
         cmd.extend(["-o", output_template])
+        # Priority 1: Fetch official creator thumbnail from source platform
+        cmd.extend(["--write-thumbnail", "--convert-thumbnails", "jpg"])
 
         # User custom arguments override (validated against strict canonical allowlist)
         validated_args = []
@@ -1439,7 +1452,58 @@ def run_yt_dlp_download(download_id, url, settings):
 
             local_thumb_rel_url = f"/api/thumbnail/{safe_id}.jpg"
             thumb_success = False
-            if file_ext in ["mp4", "mkv", "webm", "avi", "mov"]:
+
+            # Priority 1: Check if yt-dlp extracted an official creator thumbnail in work dir
+            creator_thumb = None
+            if os.path.exists(job_work_dir):
+                for f in os.listdir(job_work_dir):
+                    f_path = os.path.join(job_work_dir, f)
+                    if os.path.isfile(f_path) and os.path.splitext(f)[1].lower() in (".jpg", ".jpeg", ".webp", ".png"):
+                        if os.path.getsize(f_path) > 0:
+                            creator_thumb = f_path
+                            break
+
+            if creator_thumb:
+                try:
+                    ffmpeg_bin = updater.get_ffmpeg_binary("ffmpeg")
+                    if ffmpeg_bin:
+                        sub_env = updater.get_yt_dlp_env()
+                        c_cmd = [
+                            ffmpeg_bin,
+                            "-nostdin",
+                            "-y",
+                            "-hide_banner",
+                            "-loglevel",
+                            "error",
+                            "-protocol_whitelist",
+                            "file,pipe",
+                            "-i",
+                            creator_thumb,
+                            "-q:v",
+                            "3",
+                            "--",
+                            local_thumb_path,
+                        ]
+                        c_res = subprocess.run(
+                            c_cmd,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            text=True,
+                            timeout=15,
+                            env=sub_env,
+                        )
+                        if c_res.returncode == 0 and os.path.exists(local_thumb_path) and os.path.getsize(local_thumb_path) > 0:
+                            thumb_success = True
+                            _append_log(download_id, "[system] Saved official creator thumbnail from source platform.")
+                    if not thumb_success and creator_thumb.lower().endswith((".jpg", ".jpeg")):
+                        shutil.copyfile(creator_thumb, local_thumb_path)
+                        thumb_success = True
+                        _append_log(download_id, "[system] Saved official creator thumbnail from source platform.")
+                except Exception as e:
+                    _append_log(download_id, f"[system] Creator thumbnail notice: {e}")
+
+            # Priority 2: Fallback to ffmpeg video frame extraction at 5 seconds
+            if not thumb_success and file_ext in ["mp4", "mkv", "webm", "avi", "mov"]:
                 thumb_success = generate_video_thumbnail(
                     final_filepath, local_thumb_path, duration=duration, download_id=download_id
                 )

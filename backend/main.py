@@ -26,7 +26,7 @@ from backend import privacy
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
-APP_VERSION = "1.2.4"
+APP_VERSION = "1.2.5"
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9_.-]{2,32}$")
 
 MAX_LOGIN_ATTEMPTS = 5
@@ -910,6 +910,48 @@ def record_video_play(download_id: str):
         label = info.get("title") or info.get("filename") or download_id
         database.add_activity_log("PLAY", f"Played media in browser player: {label}", download_id)
     return {"status": "success"}
+
+
+@app.post("/api/downloads/{download_id}/thumbnail")
+def update_thumbnail_from_frame(download_id: str, time: float = Query(0.0)):
+    """
+    Extracts a video frame at the requested timestamp (seconds) and sets it as the download's thumbnail.
+    Enforces strict path containment inside DOWNLOAD_DIR.
+    """
+    info = database.get_download(download_id)
+    if not info:
+        raise HTTPException(status_code=404, detail="Download record not found")
+
+    filepath = info.get("filepath")
+    if not filepath or not os.path.isfile(filepath):
+        raise HTTPException(status_code=404, detail="Media file not found on disk")
+
+    if not downloader.is_path_within(filepath, downloader.DOWNLOAD_DIR):
+        raise HTTPException(status_code=403, detail="Access denied: file outside download directory")
+
+    safe_id = os.path.basename(download_id)
+    thumb_path = os.path.join(downloader.THUMBNAIL_DIR, f"{safe_id}.jpg")
+
+    success = downloader.generate_video_thumbnail(
+        filepath, thumb_path, seek_sec=max(0.0, time), download_id=download_id
+    )
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to extract thumbnail frame from video")
+
+    thumb_url = f"/api/thumbnail/{safe_id}.jpg"
+    database.update_download(download_id, thumbnail_url=thumb_url)
+    database.add_activity_log(
+        "THUMBNAIL_UPDATE",
+        f"Thumbnail updated to frame at {time:.2f}s",
+        download_id,
+    )
+
+    ts = int(datetime.now().timestamp())
+    return {
+        "status": "success",
+        "thumbnail_url": f"{thumb_url}?t={ts}",
+        "time": time,
+    }
 
 
 @app.delete("/api/downloads/{download_id}")

@@ -30,6 +30,7 @@ let appState = {
     selectedIds: new Set(),
     pendingPurgeIds: [],
     inspectedItemId: null,
+    activePlayingId: null,
     activeLogStream: null,
     activeUpdateStream: null,
     hadActiveDownloads: false,
@@ -1563,6 +1564,7 @@ function openPlayerModal(id) {
     const saveLink = document.getElementById('player-download-link');
     if (!modal || !video) return;
 
+    appState.activePlayingId = String(id);
     const label = item ? (item.title || item.filename || 'Media Player') : 'Media Player';
     if (titleEl) titleEl.textContent = label;
     if (saveLink) saveLink.href = `${API_BASE}/video/${encodeURIComponent(id)}?download=true`;
@@ -1583,6 +1585,7 @@ function openPlayerModal(id) {
 }
 
 function closePlayerModal() {
+    appState.activePlayingId = null;
     const modal = document.getElementById('player-modal');
     const video = document.getElementById('video-player');
     if (video) {
@@ -1591,6 +1594,47 @@ function closePlayerModal() {
         video.load();
     }
     modal?.classList.add('hidden');
+}
+
+async function capturePlayerThumbnail() {
+    const video = document.getElementById('video-player');
+    const setBtn = document.getElementById('player-set-thumb-btn');
+    const id = appState.activePlayingId;
+    if (!video || !id) {
+        showToast('No active video playing to capture frame from.', 'info');
+        return;
+    }
+
+    const currentTime = Number(video.currentTime || 0);
+    if (setBtn) {
+        setBtn.disabled = true;
+        setBtn.textContent = 'Saving Frame...';
+    }
+
+    try {
+        const res = await apiFetch(`${API_BASE}/downloads/${encodeURIComponent(id)}/thumbnail?time=${currentTime.toFixed(2)}`, {
+            method: 'POST'
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || 'Failed to update thumbnail');
+        }
+        const data = await res.json();
+        const item = appState.libraryItems.find((i) => String(i.id) === String(id));
+        if (item) {
+            item.thumbnail_url = data.thumbnail_url;
+            renderLibrary();
+        }
+        const timeStr = formatDuration(Math.floor(currentTime));
+        showToast(`Thumbnail set to video frame at ${timeStr}!`, 'success');
+    } catch (err) {
+        showToast(err.message || 'Error updating thumbnail', 'error');
+    } finally {
+        if (setBtn) {
+            setBtn.disabled = false;
+            setBtn.textContent = 'Set as Thumbnail';
+        }
+    }
 }
 
 function openLogModal(id) {
@@ -2667,7 +2711,8 @@ document.addEventListener('DOMContentLoaded', () => {
         openActivityDetailModal(idx);
     });
 
-    // 9. Modal Close Handlers
+    // 9. Modal Handlers
+    document.getElementById('player-set-thumb-btn')?.addEventListener('click', capturePlayerThumbnail);
     document.getElementById('close-player')?.addEventListener('click', closePlayerModal);
     document.getElementById('close-log')?.addEventListener('click', closeLogModal);
     document.getElementById('copy-log-btn')?.addEventListener('click', () => {
