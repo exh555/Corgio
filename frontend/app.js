@@ -1616,8 +1616,16 @@ async function capturePlayerThumbnail() {
             method: 'POST'
         });
         if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            throw new Error(err.detail || 'Failed to update thumbnail');
+            let errMsg = 'Failed to update thumbnail';
+            try {
+                const err = await res.json();
+                if (err && typeof err.detail === 'string') {
+                    errMsg = err.detail;
+                } else if (err && Array.isArray(err.detail) && err.detail.length > 0) {
+                    errMsg = err.detail.map((d) => d.msg || JSON.stringify(d)).join('; ');
+                }
+            } catch (_) {}
+            throw new Error(errMsg);
         }
         const data = await res.json();
         const item = appState.libraryItems.find((i) => String(i.id) === String(id));

@@ -696,6 +696,10 @@ def generate_video_thumbnail(video_path, thumbnail_path, duration=0, seek_sec=No
         if download_id:
             _append_log(download_id, f"[encoder] Extracting thumbnail frame at {seek_str} via ffmpeg...")
 
+        abs_video_path = os.path.realpath(video_path)
+        abs_thumb_path = os.path.realpath(thumbnail_path)
+        os.makedirs(os.path.dirname(abs_thumb_path), exist_ok=True)
+
         sub_env = updater.get_yt_dlp_env()
         cmd = [
             ffmpeg_bin,
@@ -709,15 +713,14 @@ def generate_video_thumbnail(video_path, thumbnail_path, duration=0, seek_sec=No
             "-ss",
             seek_str,
             "-i",
-            video_path,
+            abs_video_path,
             "-map_metadata",
             "-1",
             "-vframes",
             "1",
             "-q:v",
             "4",
-            "--",
-            thumbnail_path,
+            abs_thumb_path,
         ]
         result = subprocess.run(
             cmd,
@@ -728,10 +731,13 @@ def generate_video_thumbnail(video_path, thumbnail_path, duration=0, seek_sec=No
             start_new_session=True,
             env=sub_env,
         )
-        if result.returncode == 0 and os.path.exists(thumbnail_path) and os.path.getsize(thumbnail_path) > 0:
+        if result.returncode == 0 and os.path.exists(abs_thumb_path) and os.path.getsize(abs_thumb_path) > 0:
             return True
 
-        if seek_sec > 0 and not (download_id and _is_cancelled_or_purged(download_id)):
+        if download_id and result.stderr:
+            _append_log(download_id, f"[encoder] Thumbnail frame extraction notice: {result.stderr.strip()}")
+
+        if seek_num > 0 and not (download_id and _is_cancelled_or_purged(download_id)):
             cmd_fallback = [
                 ffmpeg_bin,
                 "-nostdin",
@@ -744,15 +750,14 @@ def generate_video_thumbnail(video_path, thumbnail_path, duration=0, seek_sec=No
                 "-ss",
                 "00:00:00",
                 "-i",
-                video_path,
+                abs_video_path,
                 "-map_metadata",
                 "-1",
                 "-vframes",
                 "1",
                 "-q:v",
                 "4",
-                "--",
-                thumbnail_path,
+                abs_thumb_path,
             ]
             res2 = subprocess.run(
                 cmd_fallback,
@@ -763,7 +768,7 @@ def generate_video_thumbnail(video_path, thumbnail_path, duration=0, seek_sec=No
                 start_new_session=True,
                 env=sub_env,
             )
-            if res2.returncode == 0 and os.path.exists(thumbnail_path) and os.path.getsize(thumbnail_path) > 0:
+            if res2.returncode == 0 and os.path.exists(abs_thumb_path) and os.path.getsize(abs_thumb_path) > 0:
                 return True
 
         if download_id:
@@ -1481,7 +1486,6 @@ def run_yt_dlp_download(download_id, url, settings):
                             creator_thumb,
                             "-q:v",
                             "3",
-                            "--",
                             local_thumb_path,
                         ]
                         c_res = subprocess.run(

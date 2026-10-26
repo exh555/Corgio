@@ -26,7 +26,7 @@ from backend import privacy
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
-APP_VERSION = "1.2.5"
+APP_VERSION = "1.2.6"
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9_.-]{2,32}$")
 
 MAX_LOGIN_ATTEMPTS = 5
@@ -930,12 +930,15 @@ def update_thumbnail_from_frame(download_id: str, time: float = Query(0.0)):
         raise HTTPException(status_code=403, detail="Access denied: file outside download directory")
 
     safe_id = os.path.basename(download_id)
+    os.makedirs(downloader.THUMBNAIL_DIR, exist_ok=True)
     thumb_path = os.path.join(downloader.THUMBNAIL_DIR, f"{safe_id}.jpg")
 
     success = downloader.generate_video_thumbnail(
         filepath, thumb_path, seek_sec=max(0.0, time), download_id=download_id
     )
     if not success:
+        if not updater.get_ffmpeg_binary("ffmpeg"):
+            raise HTTPException(status_code=500, detail="FFmpeg binary not available on host system")
         raise HTTPException(status_code=500, detail="Failed to extract thumbnail frame from video")
 
     thumb_url = f"/api/thumbnail/{safe_id}.jpg"
