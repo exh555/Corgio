@@ -428,13 +428,13 @@ def test_ffmpeg_thumbnail_command_flags():
 
 
 def test_main_version_and_import_safety():
-    """Validates that APP_VERSION is 1.2.8 and datetime/time imports in main.py are strictly defined."""
-    # Read backend/main.py directly to verify syntax and imports without external deps
+    """Validates that APP_VERSION is 1.2.9 and time parameter does not shadow module time."""
     main_py_path = os.path.join(os.path.dirname(__file__), "..", "backend", "main.py")
     with open(main_py_path, "r", encoding="utf-8") as f:
         content = f.read()
-    assert 'APP_VERSION = "1.2.8"' in content
+    assert 'APP_VERSION = "1.2.9"' in content
     assert "from datetime import datetime" in content
+    assert 'seek_time: float = Query(0.0, alias="time")' in content
     assert "ts = int(time.time())" in content
 
 

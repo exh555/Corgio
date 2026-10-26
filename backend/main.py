@@ -27,7 +27,7 @@ from backend import privacy
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
-APP_VERSION = "1.2.8"
+APP_VERSION = "1.2.9"
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9_.-]{2,32}$")
 
 MAX_LOGIN_ATTEMPTS = 5
@@ -914,7 +914,7 @@ def record_video_play(download_id: str):
 
 
 @app.post("/api/downloads/{download_id}/thumbnail")
-def update_thumbnail_from_frame(download_id: str, time: float = Query(0.0)):
+def update_thumbnail_from_frame(download_id: str, seek_time: float = Query(0.0, alias="time")):
     """
     Extracts a video frame at the requested timestamp (seconds) and sets it as the download's thumbnail.
     Enforces strict path containment inside DOWNLOAD_DIR.
@@ -935,16 +935,16 @@ def update_thumbnail_from_frame(download_id: str, time: float = Query(0.0)):
         os.makedirs(downloader.THUMBNAIL_DIR, exist_ok=True)
         thumb_path = os.path.join(downloader.THUMBNAIL_DIR, f"{safe_id}.jpg")
 
-        logging.info(f"[thumbnail] Initiating frame capture for id={download_id} at {time:.2f}s from {filepath}")
+        logging.info(f"[thumbnail] Initiating frame capture for id={download_id} at {seek_time:.2f}s from {filepath}")
         success, err_detail = downloader.generate_video_thumbnail_detailed(
-            filepath, thumb_path, seek_sec=max(0.0, time), download_id=download_id
+            filepath, thumb_path, seek_sec=max(0.0, seek_time), download_id=download_id
         )
         if not success:
             if not updater.get_ffmpeg_binary("ffmpeg"):
                 err_msg = "FFmpeg binary not available on host system"
             else:
                 err_msg = f"Thumbnail extraction failed: {err_detail or 'unsupported or corrupt video format'}"
-            logging.error(f"[thumbnail] {err_msg} (file: {filepath}, seek: {time:.2f}s)")
+            logging.error(f"[thumbnail] {err_msg} (file: {filepath}, seek: {seek_time:.2f}s)")
             database.add_activity_log("THUMBNAIL_ERROR", err_msg, download_id)
             raise HTTPException(status_code=500, detail=err_msg)
 
@@ -952,16 +952,16 @@ def update_thumbnail_from_frame(download_id: str, time: float = Query(0.0)):
         database.update_download(download_id, thumbnail_url=thumb_url)
         database.add_activity_log(
             "THUMBNAIL_UPDATE",
-            f"Thumbnail updated to frame at {time:.2f}s",
+            f"Thumbnail updated to frame at {seek_time:.2f}s",
             download_id,
         )
 
         ts = int(time.time())
-        logging.info(f"[thumbnail] Frame capture successful for id={download_id} at {time:.2f}s -> {thumb_url}?t={ts}")
+        logging.info(f"[thumbnail] Frame capture successful for id={download_id} at {seek_time:.2f}s -> {thumb_url}?t={ts}")
         return {
             "status": "success",
             "thumbnail_url": f"{thumb_url}?t={ts}",
-            "time": time,
+            "time": seek_time,
         }
     except HTTPException:
         raise
