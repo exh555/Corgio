@@ -354,6 +354,22 @@ def test_filepath_reference_counting():
             database.DB_PATH = old_db_path
 
 
+# ============================================================================
+# 10. Frontend Cache Directives
+# ============================================================================
+def test_html_zero_cache_headers_and_meta():
+    """Validates that frontend/index.html includes zero-cache HTTP-EQUIV directives."""
+    frontend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend"))
+    index_path = os.path.join(frontend_dir, "index.html")
+    assert os.path.exists(index_path)
+    with open(index_path, "r", encoding="utf-8") as f:
+        html = f.read()
+
+    assert '<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">' in html
+    assert '<meta http-equiv="Pragma" content="no-cache">' in html
+    assert '<meta http-equiv="Expires" content="0">' in html
+
+
 if __name__ == "__main__":
     test_funcs = [v for k, v in list(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in test_funcs:

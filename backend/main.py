@@ -26,7 +26,7 @@ from backend import privacy
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
-APP_VERSION = "1.2.3"
+APP_VERSION = "1.2.4"
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9_.-]{2,32}$")
 
 MAX_LOGIN_ATTEMPTS = 5
@@ -419,9 +419,14 @@ async def security_and_privacy_middleware(request: Request, call_next):
     response.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
     response.headers.setdefault("Content-Security-Policy", DEFAULT_CSP)
 
-    if path.startswith("/api/"):
-        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    if path == "/" or path.endswith((".html", ".css", ".js")) or path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    elif path.startswith("/api/"):
+        if not path.startswith("/api/thumbnail/"):
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            response.headers["Pragma"] = "no-cache"
 
     return response
 
@@ -1131,13 +1136,13 @@ def stream_engine_update_logs():
 
 @app.get("/api/thumbnail/{download_id}.jpg")
 def serve_thumbnail(download_id: str):
-    """Serves local video thumbnail with sandbox CSP and nosniff"""
+    """Serves local video thumbnail with sandbox CSP, nosniff, and browser-level caching"""
     safe_id = os.path.basename(download_id)
     thumb_path = os.path.join(downloader.THUMBNAIL_DIR, f"{safe_id}.jpg")
     headers = {
         "Content-Security-Policy": "sandbox",
         "X-Content-Type-Options": "nosniff",
-        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
     }
     if os.path.exists(thumb_path) and downloader.is_path_within(thumb_path, downloader.THUMBNAIL_DIR):
         return FileResponse(thumb_path, media_type="image/jpeg", headers=headers)
@@ -1234,8 +1239,13 @@ app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 
 @app.get("/")
 def read_index():
-    """Serve the SPA index page"""
+    """Serve the SPA index page with zero-cache headers"""
     index_file = os.path.join(FRONTEND_DIR, "index.html")
     if os.path.exists(index_file):
-        return FileResponse(index_file)
+        headers = {
+            "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        }
+        return FileResponse(index_file, headers=headers)
     return {"message": "Welcome. Place index.html inside the frontend/ folder."}
